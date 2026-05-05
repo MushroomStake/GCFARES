@@ -63,12 +63,76 @@ function collapseRangesFromArray(selected = [], options = []) {
   return parts.concat(unknowns).join(', ');
 }
 
+// Expand compressed labels like "Instructor I-III, Professor II" back to full RANKS array
+function expandCompressedRanges(input) {
+  if (!input) return [];
+  const tokens = String(input).split(/\s*,\s*/).map(t => t.trim()).filter(Boolean);
+  const result = new Set();
+
+  for (const token of tokens) {
+    if (RANKS.includes(token)) {
+      result.add(token);
+      continue;
+    }
+
+    const lastSpace = token.lastIndexOf(' ');
+    if (lastSpace === -1) {
+      // fallback: include any rank containing the token
+      RANKS.forEach(r => { if (r.toLowerCase().includes(token.toLowerCase())) result.add(r); });
+      continue;
+    }
+
+    const prefix = token.slice(0, lastSpace);
+    const suf = token.slice(lastSpace + 1);
+
+    // If range like 'I-III'
+    if (suf.includes('-')) {
+      const [startS, endS] = suf.split('-').map(s => s.trim());
+      // Get group of ranks with same prefix
+      const group = RANKS.map((r, i) => ({ r, i })).filter(x => x.r.startsWith(prefix + ' '));
+      if (group.length === 0) continue;
+      const suffixes = group.map(x => x.r.slice(x.r.lastIndexOf(' ') + 1));
+      const startIdx = suffixes.indexOf(startS);
+      const endIdx = suffixes.indexOf(endS);
+      if (startIdx === -1 || endIdx === -1) {
+        group.forEach(x => result.add(x.r));
+      } else {
+        for (let k = startIdx; k <= endIdx; k++) result.add(group[k].r);
+      }
+    } else {
+      // single suffix, try to match exact or by prefix
+      const exact = `${prefix} ${suf}`;
+      if (RANKS.includes(exact)) {
+        result.add(exact);
+      } else {
+        RANKS.forEach(r => { if (r.startsWith(prefix + ' ') && r.endsWith(' ' + suf)) result.add(r); });
+      }
+    }
+  }
+
+  return Array.from(result);
+}
+
 
 function normalizePartLookupKey(value) {
   return String(value || '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
+}
+
+// Map department name or code to canonical short code used in UI
+function toCanonicalDepartmentCodeFromName(name) {
+  if (!name) return null;
+  const s = String(name).trim().toUpperCase();
+  if (s.includes('COMPUTER')) return 'CCS';
+  if (s.includes('HOTEL') || s.includes('TOURISM')) return 'CHTM';
+  if (s.includes('BUSINESS')) return 'CBA';
+  if (s.includes('ALLIED HEALTH') || s.includes('HEALTH')) return 'CAHS';
+  if (s.includes('ENGINEERING') || s.includes('ARCHITECTURE')) return 'CEAS';
+  // common short codes
+  if (s === 'CCS' || s === 'CBA' || s === 'CHTM' || s === 'CAHS' || s === 'CEAS') return s;
+  return null;
 }
 
 // Helper function to convert storage path to public URL
@@ -150,49 +214,17 @@ export function FacultyInfoCard({ facultyData, applicationData, onEditFinalScore
         <div>
           <div className="fi-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Personal Details</div>
           <div className="fi-field"><label>Name</label><span>{facultyData.name_last}, {facultyData.name_first} {facultyData.name_middle}.</span></div>
-          <div className="fi-field"><label>Department</label><span>{facultyData.department_name || 'N/A'}</span></div>
+          <div className="fi-field"><label>Department</label><span>{(function(){ const code = toCanonicalDepartmentCodeFromName(facultyData.department_name); return code || facultyData.department_name || 'N/A'; })()}</span></div>
         </div>
         <div>
           <div className="fi-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2-2v2"/></svg>Employment Status</div>
-          <div className="fi-field"><label>Present Rank</label><span>{facultyData.current_rank || 'N/A'}</span></div>
-          <div className="fi-field"><label>Nature of Appointment</label><span>{facultyData.nature_of_appointment || 'N/A'}</span></div>
-          <div className="fi-field"><label>Current Salary</label><span>₱{facultyData.current_salary ? Number(facultyData.current_salary).toLocaleString('en-PH', { minimumFractionDigits: 2 }) : 'N/A'}</span></div>
+            <div className="fi-field"><label>Present Rank</label><span>{facultyData.current_rank || 'N/A'}</span></div>
+            <div className="fi-field"><label>Nature of Appointment</label><span>{facultyData.nature_of_appointment || 'N/A'}</span></div>
         </div>
         <div>
           <div className="fi-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Experience &amp; Rating</div>
           <div className="fi-field"><label>Teaching Exp.</label><span>{facultyData.teaching_experience_years || 0} years</span></div>
           <div className="fi-field"><label>Industry Exp.</label><span>{facultyData.industry_experience_years || 0} years</span></div>
-          <div className="fi-field">
-            <label>Final Score</label>
-            {!isEditingFinalScore ? (
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span>{applicationData.display_score ?? 'Not scored'}</span>
-                <button
-                  onClick={() => onEditFinalScore()}
-                  style={{ padding: '4px 8px', background: '#dbeafe', color: '#0284c7', border: '1px solid #0284c7', borderRadius: '4px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }}
-                >
-                  ✏
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input
-                  type="number"
-                  value={draftScore}
-                  onChange={(e) => onDraftScoreChange(e.target.value)}
-                  step="0.01"
-                  style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '13px', width: '80px' }}
-                />
-                <button
-                  onClick={() => onSaveFinalScore()}
-                  disabled={isSavingFinalScore}
-                  style={{ padding: '6px 10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', opacity: isSavingFinalScore ? 0.6 : 1 }}
-                >
-                  {isSavingFinalScore ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            )}
-          </div>
           <div className="fi-field"><label>Status</label><span>{applicationData.status?.replace(/_/g, ' ') || 'N/A'}</span></div>
         </div>
         <div>
@@ -203,7 +235,16 @@ export function FacultyInfoCard({ facultyData, applicationData, onEditFinalScore
         </div>
         <div>
           <div className="fi-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Application Details</div>
-          <div className="fi-field"><label>Applying For</label><span>{facultyData.applying_for || 'N/A'}</span></div>
+          <div className="fi-field"><label>Applying For</label>
+            <span>
+              {(function(){
+                const raw = facultyData.applying_for || facultyData.applyingFor || '';
+                const arr = Array.isArray(raw) ? raw : String(raw).split(/\s*,\s*/).filter(Boolean);
+                const comp = collapseRangesFromArray(arr, RANKS);
+                return comp || 'N/A';
+              })()}
+            </span>
+          </div>
           <div className="fi-field"><label>Last Promotion</label><span>{facultyData.date_of_last_promotion ? new Date(facultyData.date_of_last_promotion).toLocaleDateString() : 'N/A'}</span></div>
         </div>
       </div>
@@ -1280,9 +1321,38 @@ function QualificationDropdown({ label, selected, onToggle }) {
   );
 }
 
-export function SummaryView({ onBack, areaScores }) {
+export function SummaryView({ onBack, areaScores, onCompleted, initialQuals = {} }) {
   const [experienceInDegree, setExperienceInDegree] = useState([]);
   const [degree, setDegree] = useState([]);
+  const [teaching, setTeaching] = useState('Qualified');
+  const [research, setResearch] = useState('Qualified');
+  const [eligibility, setEligibility] = useState('Qualified');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Prefill from initial qualifications when provided
+  useEffect(() => {
+    if (!initialQuals) return;
+
+    if (initialQuals.qual_experience) {
+      try {
+        setExperienceInDegree(expandCompressedRanges(initialQuals.qual_experience));
+      } catch (e) {
+        console.warn('Failed to expand qual_experience', e);
+      }
+    }
+
+    if (initialQuals.qual_degree) {
+      try {
+        setDegree(expandCompressedRanges(initialQuals.qual_degree));
+      } catch (e) {
+        console.warn('Failed to expand qual_degree', e);
+      }
+    }
+
+    if (initialQuals.qual_teaching) setTeaching(initialQuals.qual_teaching);
+    if (initialQuals.qual_research) setResearch(initialQuals.qual_research);
+    if (initialQuals.qual_eligibility) setEligibility(initialQuals.qual_eligibility);
+  }, [initialQuals]);
 
   const toggleExperience = (option) => {
     setExperienceInDegree((prev) => (
@@ -1298,6 +1368,31 @@ export function SummaryView({ onBack, areaScores }) {
         ? prev.filter((item) => item !== option)
         : [...prev, option]
     ));
+  };
+
+  const handleCompleted = async () => {
+    try {
+      setIsSaving(true);
+      
+      // Format the qualifications
+      const qualifications = {
+        qual_experience: collapseRangesFromArray(experienceInDegree, RANKS) || '',
+        qual_degree: collapseRangesFromArray(degree, RANKS) || '',
+        qual_teaching: teaching || 'Qualified',
+        qual_research: research || 'Qualified',
+        qual_eligibility: eligibility || 'Qualified',
+      };
+
+      // Call the onCompleted callback with the qualifications data
+      if (onCompleted) {
+        await onCompleted(qualifications);
+      }
+    } catch (error) {
+      console.error('❌ Error saving qualifications:', error);
+      alert('Failed to save qualifications. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Calculate total score including excess points
@@ -1372,28 +1467,44 @@ export function SummaryView({ onBack, areaScores }) {
         <div className="qual-row" style={{ marginBottom: '6px' }}>
           <label>Teaching performance</label>
           <div className="qual-select-wrap">
-            <select defaultValue="Qualified"><option>Qualified</option><option>Not Qualified</option></select>
+            <select value={teaching} onChange={(e) => setTeaching(e.target.value)}>
+              <option>Qualified</option>
+              <option>Not Qualified</option>
+            </select>
           </div>
         </div>
         <div className="qual-row" style={{ marginBottom: '6px' }}>
           <label>Research Output</label>
           <div className="qual-select-wrap">
-            <select defaultValue="Qualified"><option>Qualified</option><option>Not Qualified</option></select>
+            <select value={research} onChange={(e) => setResearch(e.target.value)}>
+              <option>Qualified</option>
+              <option>Not Qualified</option>
+            </select>
           </div>
         </div>
         <div className="qual-row" style={{ marginBottom: '6px' }}>
           <label>Elegibility</label>
           <div className="qual-select-wrap">
-            <select defaultValue="Qualified"><option>Qualified</option><option>Not Qualified</option></select>
+            <select value={eligibility} onChange={(e) => setEligibility(e.target.value)}>
+              <option>Qualified</option>
+              <option>Not Qualified</option>
+            </select>
           </div>
         </div>
 
         <div className="qual-footer" style={{ marginTop: '12px' }}>
-          <button className="btn-nav btn-nav-prev" onClick={onBack}>
+          <button className="btn-nav btn-nav-prev" onClick={onBack} disabled={isSaving}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
             Go Back
           </button>
-          <button className="btn-completed">Completed</button>
+          <button 
+            className="btn-completed" 
+            onClick={handleCompleted}
+            disabled={isSaving}
+            style={{ opacity: isSaving ? 0.6 : 1, cursor: isSaving ? 'not-allowed' : 'pointer' }}
+          >
+            {isSaving ? 'Saving...' : 'Completed'}
+          </button>
         </div>
       </div>
     </div>

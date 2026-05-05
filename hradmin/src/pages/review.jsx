@@ -229,10 +229,24 @@ export default function Review() {
       console.log('👥 Extracted participant faculty IDs:', participantFacultyIds);
 
       if (participantFacultyIds.length === 0) {
-        // No one applied for this cycle yet
-        console.warn('⚠️ No accepted participants for this cycle');
-        setApplications([]);
-        return;
+        // No accepted participants found — try a broader fallback to include other statuses
+        console.warn('⚠️ No accepted participants for this cycle — falling back to any participants with faculty_id');
+        const { data: anyParticipants, error: anyParticipantsError } = await supabase
+          .from('cycle_participants')
+          .select('faculty_id, status')
+          .eq('cycle_id', activeCycle.cycle_id)
+          .not('faculty_id', 'is', null);
+
+        if (!anyParticipantsError && (anyParticipants || []).length > 0) {
+          const fallbackIds = Array.from(new Set((anyParticipants || []).map(p => p.faculty_id).filter(Boolean)));
+          console.log('🔁 Fallback participant faculty IDs:', fallbackIds);
+          participantFacultyIds.push(...fallbackIds);
+        } else {
+          // Still none — no one applied for this cycle
+          console.warn('⚠️ No participants found for this cycle even after fallback');
+          setApplications([]);
+          return;
+        }
       }
 
       // Get areas for lookup
@@ -294,18 +308,36 @@ export default function Review() {
         submissionCountByApplicationId: Array.from(submissionCountByApplicationId.entries())
       });
 
-      // Keep only latest application per faculty for the active cycle view
+      // Keep only one application per faculty for the active cycle view.
+      // Prefer reviewed applications (VPAA_Completed / HR_Completed) over drafts and older submissions.
+      const applicationStatusPriority = {
+        VPAA_Completed: 4,
+        HR_Completed: 3,
+        Under_VPAA_Review: 2,
+        Under_HR_Review: 2,
+        Submitted: 2,
+        Draft: 1,
+      };
+
+      const getApplicationPriority = (app) => {
+        const statusScore = applicationStatusPriority[app.status] || 0;
+        const createdAtScore = new Date(app.created_at).getTime() || 0;
+        return statusScore * 1e13 + createdAtScore;
+      };
+
       const latestByFaculty = new Map();
       for (const app of (applicationsData || [])) {
-        if (!latestByFaculty.has(app.faculty_id)) {
+        const existing = latestByFaculty.get(app.faculty_id);
+        if (!existing || getApplicationPriority(app) > getApplicationPriority(existing)) {
           latestByFaculty.set(app.faculty_id, app);
         }
       }
       const cycleScopedApplications = Array.from(latestByFaculty.values());
 
-      console.log('🎯 After deduping (latest per faculty):', {
+      console.log('🎯 After deduping (best per faculty):', {
         totalCount: cycleScopedApplications.length,
-        facultyIds: cycleScopedApplications.map(a => a.faculty_id)
+        facultyIds: cycleScopedApplications.map(a => a.faculty_id),
+        selectedStatuses: cycleScopedApplications.map(a => a.status)
       });
 
       const applicationIds = cycleScopedApplications.map((app) => app.application_id);
@@ -339,8 +371,10 @@ export default function Review() {
         const isRankingFaculty = (facultyData?.status || '').toString().trim().toLowerCase() === 'ranking';
         const hasSubmittedFiles = (submissionCountByApplicationId.get(appData.application_id) || 0) > 0;
 
-        if (!isRankingFaculty || !hasSubmittedFiles) {
-          console.log('⏭️ Skipping application because faculty is not ranking or has no submissions', {
+        // Previously we required BOTH ranking status and submitted files to show an application.
+        // Relax: show the application if EITHER the faculty is in `ranking` status OR the application has submissions.
+        if (!isRankingFaculty && !hasSubmittedFiles) {
+          console.log('⏭️ Skipping application because faculty is not ranking AND has no submissions', {
             application_id: appData.application_id,
             faculty_id: appData.faculty_id,
             faculty_status: facultyData?.status,
@@ -698,6 +732,58 @@ export default function Review() {
     }
   };
 
+  const handleCompleteQualifications = async (qualifications) => {
+    if (!selectedApplication?.id) {
+      alert('No application selected. Please try again.');
+      return;
+    }
+
+    try {
+      const now = new Date().toISOString();
+
+      const { error: updateError } = await supabase
+        .from('applications')
+        .update({
+          qual_experience: qualifications.qual_experience,
+          qual_degree: qualifications.qual_degree,
+          qual_teaching: qualifications.qual_teaching,
+          qual_research: qualifications.qual_research,
+          qual_eligibility: qualifications.qual_eligibility,
+          status: 'HR_Completed',
+          hr_completed_at: now,
+        })
+        .eq('application_id', selectedApplication.id);
+
+      if (updateError) throw updateError;
+
+      const updatedSelectedApplication = {
+        ...selectedApplication,
+        qual_experience: qualifications.qual_experience,
+        qual_degree: qualifications.qual_degree,
+        qual_teaching: qualifications.qual_teaching,
+        qual_research: qualifications.qual_research,
+        qual_eligibility: qualifications.qual_eligibility,
+        status: 'HR_Completed',
+        hr_completed_at: now,
+      };
+
+      setSelectedApplication(updatedSelectedApplication);
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === selectedApplication.id
+            ? updatedSelectedApplication
+            : app
+        )
+      );
+
+      alert('Qualifications saved and HR review completed successfully.');
+      setView('detail');
+    } catch (error) {
+      console.error('❌ Error saving qualifications:', error);
+      alert('Failed to save qualifications. Please try again.');
+    }
+  };
+
   const handleSelectArea = async (area) => {
     setLoadingAreaDetails(true);
     try {
@@ -912,20 +998,29 @@ export default function Review() {
     
     const matchesStatus = statusFilter === 'all' ||
       (statusFilter === 'pending' && ['Draft', 'Submitted', 'Under_HR_Review'].includes(app.status)) ||
-      (statusFilter === 'reviewed' && ['Under_VPAA_Review', 'For_Publishing', 'Published'].includes(app.status));
+      (statusFilter === 'reviewed' && ['HR_Completed', 'VPAA_Completed', 'Under_VPAA_Review', 'For_Publishing', 'Published'].includes(app.status));
 
     return matchesSearch && matchesDepartment && matchesStatus;
+  });
+
+  const sortedApplications = [...filteredApplications].sort((a, b) => {
+    const aScore = Number(a.display_score ?? a.final_score ?? a.hr_score ?? 0);
+    const bScore = Number(b.display_score ?? b.final_score ?? b.hr_score ?? 0);
+    if (bScore !== aScore) return bScore - aScore;
+    const lastNameComparison = a.faculty.name_last.localeCompare(b.faculty.name_last, undefined, { numeric: true });
+    if (lastNameComparison !== 0) return lastNameComparison;
+    return a.faculty.name_first.localeCompare(b.faculty.name_first, undefined, { numeric: true });
   });
 
   useEffect(() => {
     setApplicationPage(1);
   }, [searchTerm, departmentFilter, statusFilter, applications.length]);
 
-  const totalApplicationPages = Math.max(1, Math.ceil(filteredApplications.length / APPLICATION_PAGE_SIZE));
+  const totalApplicationPages = Math.max(1, Math.ceil(sortedApplications.length / APPLICATION_PAGE_SIZE));
   const safeApplicationPage = Math.min(applicationPage, totalApplicationPages);
   const applicationPageStart = (safeApplicationPage - 1) * APPLICATION_PAGE_SIZE;
   const applicationPageEnd = applicationPageStart + APPLICATION_PAGE_SIZE;
-  const paginatedApplications = filteredApplications.slice(applicationPageStart, applicationPageEnd);
+  const paginatedApplications = sortedApplications.slice(applicationPageStart, applicationPageEnd);
 
   // Convert area submissions to the format expected by AreaCard
   const submittedAreas = areaSubmissions.map(submission => ({
@@ -1063,6 +1158,7 @@ export default function Review() {
               SummaryView={SummaryView}
               onBack={handleBackToDetail}
               areaScores={summaryAreaScores}
+              onCompleted={handleCompleteQualifications}
             />
           )}
 

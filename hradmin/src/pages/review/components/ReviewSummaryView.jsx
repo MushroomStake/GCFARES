@@ -13,6 +13,7 @@ export default function ReviewSummaryView({
   SummaryView,
   onBack,
   areaScores,
+  onCompleted,
 }) {
   return (
     <>
@@ -27,7 +28,18 @@ export default function ReviewSummaryView({
         isSavingFinalScore={isSavingFinalScore}
       />
       <div className="submitted-label">Qualification Review</div>
-      <SummaryView onBack={onBack} areaScores={areaScores} />
+      <SummaryView
+        onBack={onBack}
+        areaScores={areaScores}
+        onCompleted={onCompleted}
+        initialQuals={{
+          qual_experience: selectedApplicationForDisplay?.qual_experience || '',
+          qual_degree: selectedApplicationForDisplay?.qual_degree || '',
+          qual_teaching: selectedApplicationForDisplay?.qual_teaching || '',
+          qual_research: selectedApplicationForDisplay?.qual_research || '',
+          qual_eligibility: selectedApplicationForDisplay?.qual_eligibility || '',
+        }}
+      />
     </>
   );
 }

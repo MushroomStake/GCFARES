@@ -1,6 +1,7 @@
 import React from 'react';
 
-const REVIEWED_STATUSES = ['Under_VPAA_Review', 'For_Publishing', 'Published'];
+// statuses that indicate the application has been reviewed by HR/VPAA
+const REVIEWED_STATUSES = ['HR_Completed', 'VPAA_Completed'];
 
 export default function ApplicationsListView({
   filteredApplications,
@@ -55,7 +56,7 @@ export default function ApplicationsListView({
         <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
           <div style={{ fontSize: '16px', marginBottom: '8px' }}>No ranking faculty submissions found</div>
           <div style={{ fontSize: '14px' }}>
-            Only faculty who are For Ranking and have submitted files in the active cycle are shown.
+            Applications are shown for ranking faculty or when an active-cycle submission exists.
           </div>
         </div>
       ) : (
@@ -73,17 +74,28 @@ export default function ApplicationsListView({
                 <tr key={application.id}>
                   <td>{applicationPageStart + index + 1}</td>
                   <td className="faculty-name">{application.faculty.name_last}, {application.faculty.name_first}</td>
-                  <td>{application.faculty.department_name}</td>
+                  <td>{(function(){
+                    const name = String(application.faculty.department_name || '').toUpperCase();
+                    if (!name) return 'N/A';
+                    if (name.includes('COMPUTER')) return 'CCS';
+                    if (name.includes('HOTEL') || name.includes('TOURISM')) return 'CHTM';
+                    if (name.includes('BUSINESS')) return 'CBA';
+                    if (name.includes('ALLIED HEALTH') || name.includes('HEALTH')) return 'CAHS';
+                    if (name.includes('ENGINEERING') || name.includes('ARCHITECTURE')) return 'CEAS';
+                    return application.faculty.department_name;
+                  })()}</td>
                   <td>{application.faculty.current_rank}</td>
                   <td>{application.display_score ?? 'Not scored'}</td>
                   <td>
-                    <span className={`badge ${
-                      REVIEWED_STATUSES.includes(application.status)
-                        ? 'badge-reviewed'
-                        : 'badge-pending'
-                    }`}>
-                      {REVIEWED_STATUSES.includes(application.status) ? 'Reviewed' : 'Pending'}
-                    </span>
+                    {application.status === 'HR_Completed' && (
+                      <span className="badge badge-reviewed">HR Completed</span>
+                    )}
+                    {application.status === 'VPAA_Completed' && (
+                      <span className="badge badge-reviewed">VPAA Completed</span>
+                    )}
+                    {!REVIEWED_STATUSES.includes(application.status) && (
+                      <span className="badge badge-pending">Pending</span>
+                    )}
                   </td>
                   <td>
                     <button className="review-btn" onClick={() => onReviewClick(application)}>
