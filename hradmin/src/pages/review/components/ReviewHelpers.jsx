@@ -364,7 +364,7 @@ export function DocumentViewer({ fileUrl, fileName, onClose }) {
   );
 }
 
-export function ScoringCriteriaPanel({ area, submission, criteria, onClose, areaEvalData, onSaveCriteriaScores, isSavingScore }) {
+export function ScoringCriteriaPanel({ area, submission, criteria, onClose, areaEvalData, onSaveCriteriaScores, isSavingScore, onOpenSearchModal, currentCycle, applications, selectedApplication, selectedFaculty }) {
   const buildCriteriaFromRubric = (areaId, partId, areaName) => {
     try {
       // Extract Roman numeral from areaName - this is the source of truth
@@ -525,8 +525,28 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
   const [partSubmissions, setPartSubmissions] = useState({});
   const [viewerModalOpen, setViewerModalOpen] = useState(false);
   const [viewerModalFile, setViewerModalFile] = useState(null);
+  const [areaIVModalOpen, setAreaIVModalOpen] = useState(false);
+  const [areaIVImportedRows, setAreaIVImportedRows] = useState([]);
+  const [areaIVLoadingRows, setAreaIVLoadingRows] = useState(false);
+  const [areaIVSearch, setAreaIVSearch] = useState('');
+  const [areaIVDebouncedSearch, setAreaIVDebouncedSearch] = useState('');
   const skipAutoSaveRef = useRef(true);
   const lastSaveTimeRef = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAreaIVDebouncedSearch(areaIVSearch.trim().toLowerCase());
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [areaIVSearch]);
+
+  useEffect(() => {
+    if (!areaIVModalOpen) {
+      setAreaIVSearch('');
+      setAreaIVDebouncedSearch('');
+    }
+  }, [areaIVModalOpen]);
 
   // Fetch existing criterion scores from database
   useEffect(() => {
@@ -667,10 +687,91 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
     return () => window.clearTimeout(timer);
   }, [draftCriteriaScores, submission?.submission_id, onSaveCriteriaScores]);
 
+  useEffect(() => {
+    if (!areaIVModalOpen || area?.area_id !== 7) return;
+
+    const fetchImportedRows = async () => {
+      setAreaIVLoadingRows(true);
+      try {
+        // Try multiple sources for cycle_id
+        let cycleId = null;
+
+        // Try submission first
+        if (submission?.cycle_id) {
+          cycleId = Number(submission.cycle_id);
+        }
+        // Try currentCycle
+        else if (currentCycle?.cycle_id) {
+          cycleId = Number(currentCycle.cycle_id);
+        }
+        // Try alternate cycle_id property
+        else if (currentCycle?.id) {
+          cycleId = Number(currentCycle.id);
+        }
+        // Try selectedApplication
+        else if (selectedApplication?.cycle_id) {
+          cycleId = Number(selectedApplication.cycle_id);
+        }
+
+        let rows = [];
+
+        // First try: load rows for resolved cycle.
+        if (Number.isFinite(cycleId) && cycleId > 0) {
+          const { data, error } = await supabase
+            .from('area_iv_student_evaluation_imports')
+            .select('*')
+            .eq('cycle_id', cycleId)
+            .order('created_at', { ascending: true });
+
+          if (error) {
+            throw error;
+          }
+
+          rows = data || [];
+        }
+
+        // Fallback: if active cycle has no rows, show latest imported cycle rows.
+        if (rows.length === 0) {
+          const { data: allRows, error: allRowsError } = await supabase
+            .from('area_iv_student_evaluation_imports')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+          if (allRowsError) {
+            throw allRowsError;
+          }
+
+          if (Array.isArray(allRows) && allRows.length > 0) {
+            const latestCycleId = allRows[0].cycle_id;
+            rows = allRows
+              .filter((row) => Number(row.cycle_id) === Number(latestCycleId))
+              .reverse();
+          }
+        }
+
+        setAreaIVImportedRows(rows);
+      } catch (err) {
+        console.error('[ScoringCriteriaPanel] Exception fetching Area IV rows:', err);
+        setAreaIVImportedRows([]);
+      } finally {
+        setAreaIVLoadingRows(false);
+      }
+    };
+
+    fetchImportedRows();
+  }, [areaIVModalOpen, area?.area_id, currentCycle, submission, selectedApplication]);
+
   const totalCriteriaScore = draftCriteriaScores.reduce((sum, criterion) => sum + Number(criterion.score || 0), 0);
   const displayedCriteriaScore = Math.min(totalCriteriaScore, areaMaxPoints);
   const totalExcessScore = Math.max(0, totalCriteriaScore - areaMaxPoints);
   const maxCriteriaScore = areaMaxPoints;
+  const areaIVFilteredRows = areaIVDebouncedSearch
+    ? areaIVImportedRows.filter((row) => {
+        const employee = String(row.employee_name || '').toLowerCase();
+        const rate = String(row.total_average_rate || '').toLowerCase();
+        return employee.includes(areaIVDebouncedSearch) || rate.includes(areaIVDebouncedSearch);
+      })
+    : areaIVImportedRows;
 
   const handleCriterionChange = (criterionKey, value) => {
     // Coerce empty or invalid entries to 0 to avoid backend validation errors
@@ -754,7 +855,42 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
 
       {area.area_id && (CRITERIA_DEFINITIONS[area.area_id] || CRITERIA_DEFINITIONS[1]) && (
         <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb' }}>
-          <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px', color: '#1f2937' }}>Evaluation Criteria</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '600', color: '#1f2937' }}>Evaluation Criteria</div>
+            {area?.area_id === 7 && (
+              <button
+                type="button"
+                onClick={() => setAreaIVModalOpen(true)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #10b981',
+                  background: '#ecfdf5',
+                  color: '#047857',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#d1fae5';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#ecfdf5';
+                }}
+                title="Search imported employee names"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}>
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="16.65" y1="16.65" x2="21" y2="21" />
+                </svg>
+                Search Imported Names
+              </button>
+            )}
+          </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #d1d5db', background: '#f3f4f6' }}>
@@ -855,7 +991,9 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                       )}
                     </td>
                     <td style={{ textAlign: 'center', padding: '8px 8px' }}>
-                      {partSubmissionFile ? (
+                      {area?.area_id === 7 ? (
+                        <span style={{ color: '#9ca3af', fontSize: '11px' }}>—</span>
+                      ) : partSubmissionFile ? (
                         <button
                           type="button"
                           onClick={() => {
@@ -1050,6 +1188,101 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                   </button>
                 </div>
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {areaIVModalOpen && area?.area_id === 7 && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+        }} onClick={() => setAreaIVModalOpen(false)}>
+          <div style={{
+            background: 'white',
+            borderRadius: '8px',
+            boxShadow: '0 20px 25px rgba(0,0,0,0.15)',
+            width: '90%',
+            maxWidth: '600px',
+            maxHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid #e5e7eb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}>
+              <div style={{ fontSize: '16px', fontWeight: '600', color: '#1f2937' }}>Imported Names</div>
+              <button
+                type="button"
+                onClick={() => setAreaIVModalOpen(false)}
+                style={{
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  background: 'none',
+                  border: 'none',
+                  color: '#6b7280',
+                  padding: '0',
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{
+              flex: 1,
+              overflow: 'auto',
+              padding: '16px 20px',
+            }}>
+              <div style={{ marginBottom: '12px' }}>
+                <input
+                  type="search"
+                  value={areaIVSearch}
+                  onChange={(e) => setAreaIVSearch(e.target.value)}
+                  placeholder="Search employee name or rate"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+              {areaIVLoadingRows ? (
+                <div style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>Loading imported rows...</div>
+              ) : areaIVFilteredRows.length === 0 ? (
+                <div style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>No imported rows available</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e5e7eb', background: '#f9fafb' }}>
+                      <th style={{ textAlign: 'left', padding: '12px 0', fontWeight: '600', color: '#374151' }}>Employee Name</th>
+                      <th style={{ textAlign: 'right', padding: '12px 0', fontWeight: '600', color: '#374151' }}>Total Average Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {areaIVFilteredRows.map((row, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                        <td style={{ padding: '12px 0', color: '#1f2937' }}>{row.employee_name}</td>
+                        <td style={{ textAlign: 'right', padding: '12px 0', color: '#059669', fontWeight: '600' }}>{row.total_average_rate}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

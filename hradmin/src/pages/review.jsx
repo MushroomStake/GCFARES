@@ -7,6 +7,7 @@ import { RANKING_RUBRICS } from '../data/rankingRubrics';
 import ApplicationsListView from './review/components/ApplicationsListView';
 import ReviewDetailView from './review/components/ReviewDetailView';
 import ReviewSummaryView from './review/components/ReviewSummaryView';
+import AreaIVImportPanel from './review/components/AreaIVImportPanel';
 import {
   FacultyInfoCard,
   ScoringCriteriaPanel,
@@ -625,6 +626,7 @@ export default function Review() {
   const handleSaveAreaScore = async (area) => {
     const parsedScore = Number.parseFloat(draftScores[area.id]);
     const maxPoints = Number(area.max || 0);
+    const areaIvAreaId = (areas || []).find((entry) => /AREA\s+IV/i.test(String(entry.area_name || '')))?.area_id ?? 7;
 
     if (!Number.isFinite(parsedScore)) {
       alert('Please enter a valid numeric score before saving.');
@@ -639,15 +641,60 @@ export default function Review() {
     try {
       setSavingAreaId(area.id);
 
-      const { error: submissionUpdateError } = await supabase
-        .from('area_submissions')
-        .update({ hr_points: parsedScore })
-        .eq('submission_id', area.id);
-      if (submissionUpdateError) throw submissionUpdateError;
+      const isAreaIVPlaceholder = Number(area.area_id) === Number(areaIvAreaId) && String(area.id || '').startsWith('placeholder-');
 
-      const updatedSubmissions = areaSubmissions.map((submission) =>
-        submission.id === area.id ? { ...submission, hr_points: parsedScore } : submission
-      );
+      if (isAreaIVPlaceholder && selectedApplication?.id) {
+        const { data: existingArea4Submission, error: existingError } = await supabase
+          .from('area_submissions')
+          .select('*')
+          .eq('application_id', selectedApplication.id)
+          .eq('area_id', areaIvAreaId)
+          .eq('cycle_id', currentCycle?.cycle_id)
+          .maybeSingle();
+
+        if (existingError) throw existingError;
+
+        if (existingArea4Submission) {
+          const { error: updateArea4Error } = await supabase
+            .from('area_submissions')
+            .update({ hr_points: parsedScore })
+            .eq('submission_id', existingArea4Submission.submission_id);
+
+          if (updateArea4Error) throw updateArea4Error;
+        } else {
+          const { error: insertArea4Error } = await supabase
+            .from('area_submissions')
+            .insert({
+              application_id: selectedApplication.id,
+              area_id: areaIvAreaId,
+              cycle_id: currentCycle?.cycle_id,
+              file_path: null,
+              hr_points: parsedScore,
+              csv_total_average_rate: null,
+              uploaded_at: new Date().toISOString(),
+            });
+
+          if (insertArea4Error) throw insertArea4Error;
+        }
+      } else {
+        const { error: submissionUpdateError } = await supabase
+          .from('area_submissions')
+          .update({ hr_points: parsedScore })
+          .eq('submission_id', area.id);
+        if (submissionUpdateError) throw submissionUpdateError;
+      }
+
+      const updatedSubmissions = areaSubmissions.map((submission) => {
+        if (submission.id === area.id) {
+          return { ...submission, hr_points: parsedScore };
+        }
+
+        if (isAreaIVPlaceholder && Number(submission.area_id) === Number(areaIvAreaId) && String(submission.id || '').startsWith('placeholder-')) {
+          return { ...submission, hr_points: parsedScore };
+        }
+
+        return submission;
+      });
       setAreaSubmissions(updatedSubmissions);
 
       const totalScore = calculateTotalScore(updatedSubmissions);
@@ -1114,6 +1161,7 @@ export default function Review() {
               FacultyInfoCard={FacultyInfoCard}
               AreaCard={AreaCard}
               ScoringCriteriaPanel={ScoringCriteriaPanel}
+                AreaIVImportPanel={AreaIVImportPanel}
               selectedFaculty={selectedFaculty}
               selectedApplicationForDisplay={selectedApplicationForDisplay}
               onEditFinalScore={handleEditFinalScore}
@@ -1140,6 +1188,8 @@ export default function Review() {
               onCloseAreaDetails={handleCloseAreaDetails}
               onSaveCriteriaScores={handleSaveCriteriaScores}
               savingAreaScore={savingAreaScore}
+              currentCycle={currentCycle}
+              applications={applications}
             />
           )}
 

@@ -3,6 +3,7 @@ import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './dashboard.css';
 import { supabase } from '../supabase';
+import AreaIVImportPanel from './review/components/AreaIVImportPanel';
 
 
 // ── Cycle Card ───────────────────────────────────────────────
@@ -619,6 +620,9 @@ export default function Dashboard() {
     confirmTone: 'danger',
   });
   const [loading, setLoading] = useState(true);
+  const [applications, setApplications] = useState([]);
+
+  // importer is embedded in the dashboard UI now
 
   const fetchData = async ({ showLoader = true } = {}) => {
     if (showLoader) {
@@ -665,12 +669,21 @@ export default function Dashboard() {
       let completedCount = 0;
       if (openCycle) {
         if (openCycle.cycle_id !== undefined && openCycle.cycle_id !== null) {
-          const { data: applications, error: appsError } = await supabase
+          const { data: applicationsData, error: appsError } = await supabase
             .from('applications')
-            .select('*')
+            .select(`
+              *,
+              faculty:faculty_id (
+                user_id,
+                name_last,
+                name_first,
+                name_middle
+              )
+            `)
             .eq('cycle_id', openCycle.cycle_id);
           if (appsError) throw appsError;
-          applications.forEach(app => {
+          setApplications(applicationsData || []);
+          (applicationsData || []).forEach(app => {
             if (app.status === 'Under_HR_Review' || app.status === 'Submitted') {
               pendingCount++;
             } else {
@@ -957,6 +970,10 @@ export default function Dashboard() {
 
           <div className="stats-grid">
             {statCards.map((s) => <StatCard key={s.label} {...s} />)}
+          </div>
+
+          <div style={{ marginTop: '20px' }}>
+            <AreaIVImportPanel currentCycle={currentCycle} applications={applications} showUploader={true} />
           </div>
 
           <div className="history-card">

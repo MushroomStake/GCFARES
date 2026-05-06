@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function ReviewDetailView({
   FacultyInfoCard,
   AreaCard,
   ScoringCriteriaPanel,
+  AreaIVImportPanel,
   selectedFaculty,
   selectedApplicationForDisplay,
   onEditFinalScore,
@@ -30,7 +31,13 @@ export default function ReviewDetailView({
   onCloseAreaDetails,
   onSaveCriteriaScores,
   savingAreaScore,
+  currentCycle,
+  applications,
 }) {
+  const [forceAreaIVModalOpen, setForceAreaIVModalOpen] = useState(false);
+  const selectedAreaId = Number(selectedArea?.area?.area_id || selectedArea?.area_id || 0);
+  const isAreaIV = selectedAreaId === 7;
+
   return (
     <>
       <div style={{ marginBottom: '20px' }}>
@@ -134,6 +141,11 @@ export default function ReviewDetailView({
               areaEvalData={null}
               onSaveCriteriaScores={onSaveCriteriaScores}
               isSavingScore={savingAreaScore}
+              onOpenSearchModal={selectedAreaId === 7 ? () => setForceAreaIVModalOpen(true) : null}
+              currentCycle={currentCycle}
+              applications={applications}
+              selectedApplication={selectedApplication}
+              selectedFaculty={selectedFaculty}
             />
           ) : (
             <>
