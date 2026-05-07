@@ -115,7 +115,8 @@ html, body, #root {
   color: var(--text); margin-bottom: 7px;
 }
 .form-group input[type='email'],
-.form-group input[type='password'] {
+.form-group input[type='password'],
+.form-group input[type='text'] {
   width: 100%; padding: 11px 14px;
   border: 1px solid var(--border); border-radius: 8px;
   background: #fafafa; font-family: 'DM Sans', sans-serif;
@@ -126,6 +127,31 @@ html, body, #root {
 .form-group input:focus {
   border-color: var(--green-mid);
   box-shadow: 0 0 0 3px rgba(30,110,56,0.1);
+}
+
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.password-wrapper input {
+  padding-right: 40px !important;
+}
+.password-toggle-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  transition: color 0.2s;
+}
+.password-toggle-btn:hover {
+  color: var(--text);
 }
 
 .btn-sign-in {

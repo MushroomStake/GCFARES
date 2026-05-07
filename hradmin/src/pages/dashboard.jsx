@@ -4,7 +4,7 @@ import '../styles/layout.css';
 import './dashboard.css';
 import { supabase } from '../supabase';
 import AreaIVImportPanel from './review/components/AreaIVImportPanel';
-
+import Loader from '../components/Loader';
 
 // ── Cycle Card ───────────────────────────────────────────────
 function CycleCard({ cycle, onEdit, onCycleAction }) {
@@ -82,13 +82,13 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
         <>
           <button className="btn btn-edit" onClick={onEdit}>Edit</button>
           <button
-            className={profileLocked ? 'btn btn-open' : 'btn btn-close'}
+            className="btn btn-outline-warning"
             onClick={() => onCycleAction(profileLocked ? 'unlock-profile' : 'lock-profile')}
           >
             {profileLocked ? 'Unlock Profile' : 'Lock Profile'}
           </button>
-          <button className="btn btn-open" onClick={() => onCycleAction('close')}>Close Submissions</button>
-          <button className="btn btn-close" onClick={() => onCycleAction('finish')}>Finish Evaluation</button>
+          <button className="btn btn-outline-danger" onClick={() => onCycleAction('close')}>Close Submissions</button>
+          <button className="btn btn-primary" onClick={() => onCycleAction('finish')}>Finish Evaluation</button>
         </>
       );
     } else if (isSubmissionsClosed) {
@@ -97,13 +97,13 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
         <>
           <button className="btn btn-edit" onClick={onEdit}>Edit</button>
           <button
-            className={profileLocked ? 'btn btn-open' : 'btn btn-close'}
+            className="btn btn-outline-warning"
             onClick={() => onCycleAction(profileLocked ? 'unlock-profile' : 'lock-profile')}
           >
             {profileLocked ? 'Unlock Profile' : 'Lock Profile'}
           </button>
-          <button className="btn btn-open" onClick={() => onCycleAction('reopen')}>Re-open Submissions</button>
-          <button className="btn btn-close" onClick={() => onCycleAction('finish')}>Finish Evaluation</button>
+          <button className="btn btn-outline-success" onClick={() => onCycleAction('reopen')}>Re-open Submissions</button>
+          <button className="btn btn-primary" onClick={() => onCycleAction('finish')}>Finish Evaluation</button>
         </>
       );
     } else if (isFinished) {
@@ -111,7 +111,7 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
       return (
         <>
           <button className="btn btn-edit" onClick={onEdit}>Edit</button>
-          <button className="btn btn-open" onClick={() => onCycleAction('open')}>Open Cycle</button>
+          <button className="btn btn-outline-success" onClick={() => onCycleAction('open')}>Open Cycle</button>
         </>
       );
     } else {
@@ -119,7 +119,7 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
       return (
         <>
           <button className="btn btn-edit" onClick={onEdit}>Edit</button>
-          <button className="btn btn-open" onClick={() => onCycleAction('open')}>Open Cycle</button>
+          <button className="btn btn-outline-success" onClick={() => onCycleAction('open')}>Open Cycle</button>
         </>
       );
     }
@@ -216,7 +216,7 @@ function ActionConfirmModal({ open, title, message, confirmLabel, confirmTone = 
         </div>
         <div className="action-modal-footer">
           <button className="btn btn-edit" onClick={onCancel}>Cancel</button>
-          <button className={`btn ${confirmTone === 'primary' ? 'btn-open' : 'btn-close'}`} onClick={onConfirm}>
+          <button className={`btn ${confirmTone === 'primary' ? 'btn-primary' : 'btn-outline-danger'}`} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>
@@ -944,7 +944,7 @@ export default function Dashboard() {
         <div className="main">
           <div className="content">
             <div className="page-title">Dashboard Overview</div>
-            <p style={{ padding: '24px', color: '#6b7280' }}>Loading dashboard data…</p>
+            <Loader message="Loading dashboard data..." />
           </div>
         </div>
       </div>

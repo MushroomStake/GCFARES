@@ -34,9 +34,10 @@ const ViewIcon = () => (
 );
 
 export default function Ranking() {
-  const [expandedArea, setExpandedArea] = useState(1);
+  const [selectedAreaId, setSelectedAreaId] = useState(RANKING_RUBRICS?.[0]?.areaId || null);
   const [uploadedTemplates, setUploadedTemplates] = useState({});
   const [previewTemplate, setPreviewTemplate] = useState(null);
+  const selectedArea = RANKING_RUBRICS.find((area) => area.areaId === selectedAreaId);
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -152,126 +153,126 @@ export default function Ranking() {
             </div>
           </div>
 
-          <div className="rk-section-list">
-            {RANKING_RUBRICS.map((area) => {
-              const isExpanded = expandedArea === area.areaId;
-
-              return (
-                <section key={area.areaId} className="rk-area-section">
+          <div className="rk-section-layout">
+            <aside className="rk-area-sidebar">
+              <div className="rk-sidebar-title">Select an Area</div>
+              {RANKING_RUBRICS.map((area) => {
+                const isSelected = selectedAreaId === area.areaId;
+                return (
                   <button
+                    key={area.areaId}
                     type="button"
-                    className="rk-area-head"
-                    onClick={() => setExpandedArea(isExpanded ? null : area.areaId)}
+                    className={`rk-area-pill ${isSelected ? 'is-active' : ''}`}
+                    onClick={() => setSelectedAreaId(area.areaId)}
+                    title={area.areaName}
                   >
-                    <div>
-                      <div className="rk-area-code">AREA {area.areaCode}</div>
-                      <h2 className="rk-area-title">{area.areaName}</h2>
-                    </div>
-
-                    <div className="rk-area-head-right">
-                      <div className="rk-area-points">{area.maxPoints} pts</div>
-                      <div className={`rk-chevron ${isExpanded ? 'is-open' : ''}`}>
-                        <ChevronDownIcon />
-                      </div>
+                    <div className="rk-area-pill-number">{area.areaCode}</div>
+                    <div className="rk-area-pill-info">
+                      <div className="rk-area-pill-name">{area.areaName}</div>
+                      <div className="rk-area-pill-points">{area.maxPoints} pts</div>
                     </div>
                   </button>
+                );
+              })}
+            </aside>
 
-                  {isExpanded && (
-                    <div className="rk-area-body">
-                      {area.subAreas.map((subArea) => {
-                        const templateKey = `${area.areaId}-${subArea.id}`;
-                        const template = uploadedTemplates[templateKey];
-                        const hasTemplate = Boolean(template);
+            <div className="rk-area-detail">
+              {selectedArea ? (
+                <section className="rk-area-panel">
+                  <div className="rk-area-panel-header">
+                    <div>
+                      <div className="rk-area-code">AREA {selectedArea.areaCode}</div>
+                      <h2 className="rk-area-title">{selectedArea.areaName}</h2>
+                      <p className="rk-area-description">Manage templates, review sub-area requirements, and upload supporting documents for this area.</p>
+                    </div>
+                    <div className="rk-area-points large">{selectedArea.maxPoints} pts</div>
+                  </div>
 
-                        return (
-                          <div key={subArea.id} className="rk-subarea-card">
-                            <div className="rk-subarea-copy">
-                              <div className="rk-subarea-label">{subArea.label}</div>
-                              <div className="rk-subarea-title">{subArea.title}</div>
-                              {subArea.maxPoints != null && (
-                                <div className="rk-subarea-meta">Max: <strong>{subArea.maxPoints}</strong> pts</div>
-                              )}
-                            </div>
+                  <div className="rk-area-body">
+                    {selectedArea.subAreas.map((subArea) => {
+                      const templateKey = `${selectedArea.areaId}-${subArea.id}`;
+                      const template = uploadedTemplates[templateKey];
+                      const hasTemplate = Boolean(template);
 
-                            <input
-                              type="file"
-                              id={`file-input-${area.areaId}-${subArea.id}`}
-                              style={{ display: 'none' }}
-                              onChange={(e) => handleFileUpload(area.areaId, subArea.id, e)}
-                              accept=".pdf"
-                            />
+                      return (
+                        <div key={subArea.id} className="rk-subarea-card">
+                          <div className="rk-subarea-copy">
+                            <div className="rk-subarea-label">{subArea.label}</div>
+                            <div className="rk-subarea-title">{subArea.title}</div>
+                            {subArea.maxPoints != null && (
+                              <div className="rk-subarea-meta">Max points: <strong>{subArea.maxPoints}</strong></div>
+                            )}
+                          </div>
 
-                            <div className="rk-subarea-actions">
-                              {hasTemplate ? (
-                                <>
-                                  <span className="rk-file-pill">
-                                    <CheckCircleIcon />
-                                    {template.fileName}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    className="rk-action-button rk-action-button--primary"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPreviewTemplate(template);
-                                    }}
-                                  >
-                                    <ViewIcon /> View
-                                  </button>
-                                </>
-                              ) : (
+                          <input
+                            type="file"
+                            id={`file-input-${selectedArea.areaId}-${subArea.id}`}
+                            style={{ display: 'none' }}
+                            onChange={(e) => handleFileUpload(selectedArea.areaId, subArea.id, e)}
+                            accept=".pdf"
+                          />
+
+                          <div className="rk-subarea-actions">
+                            {hasTemplate ? (
+                              <>
+                                <span className="rk-file-pill">
+                                  <CheckCircleIcon />
+                                  {template.fileName}
+                                </span>
                                 <button
                                   type="button"
-                                  className="rk-action-button"
+                                  className="rk-action-button rk-action-button--primary"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleUploadClick(area.areaId, subArea.id);
+                                    setPreviewTemplate(template);
                                   }}
                                 >
-                                  <UploadIcon /> Upload
+                                  <ViewIcon /> View
                                 </button>
-                              )}
-                            </div>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="rk-action-button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUploadClick(selectedArea.areaId, subArea.id);
+                                }}
+                              >
+                                <UploadIcon /> Upload
+                              </button>
+                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </section>
-              );
-            })}
+              ) : (
+                <div className="rk-empty-state">
+                  Select an area to display the sub-area templates and upload controls.
+                </div>
+              )}
+            </div>
           </div>
 
           {previewTemplate && (
-            <div
-              style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}
-              onClick={() => setPreviewTemplate(null)}
-            >
-              <div
-                style={{ width: 'min(1100px, 100%)', height: 'min(90vh, 900px)', background: '#fff', borderRadius: '16px', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, color: '#0f172a' }}>Template Preview</div>
-                    <div style={{ fontSize: '12px', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {previewTemplate.fileName}
-                    </div>
+            <div className="rk-preview" onClick={() => setPreviewTemplate(null)}>
+              <div className="rk-preview__panel" onClick={(e) => e.stopPropagation()}>
+                <div className="rk-preview__header">
+                  <div className="rk-preview__title-group">
+                    <div className="rk-preview__title">Template Preview</div>
+                    <div className="rk-preview__subtitle">{previewTemplate.fileName}</div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTemplate(null)}
-                    style={{ border: 'none', background: '#ef4444', color: '#fff', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}
-                  >
+                  <button type="button" className="rk-preview__close" onClick={() => setPreviewTemplate(null)}>
                     Close
                   </button>
                 </div>
-
-                <div style={{ flex: 1, background: '#f8fafc' }}>
+                <div className="rk-preview__body">
                   <iframe
                     src={`${previewTemplate.fileUrl}#toolbar=1&navpanes=0&scrollbar=1`}
                     title={previewTemplate.fileName}
-                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    className="rk-preview__iframe"
                   />
                 </div>
               </div>

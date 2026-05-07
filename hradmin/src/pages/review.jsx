@@ -14,7 +14,7 @@ import {
   AreaCard,
   SummaryView,
 } from './review/components/ReviewHelpers';
-
+import Loader from '../components/Loader';
 // ══ MAIN COMPONENT ═══════════════════════════════════════════
 export default function Review() {
   const [view, setView] = useState(() => localStorage.getItem('review_view') || 'list'); // 'list' | 'detail' | 'summary'
@@ -1113,10 +1113,7 @@ export default function Review() {
         <Sidebar />
         <div className="main">
           <div className="content">
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-              <div style={{ fontSize: '18px', marginBottom: '10px' }}>Loading applications...</div>
-              <div style={{ color: '#666' }}>Please wait while we fetch the data from the database.</div>
-            </div>
+            <Loader message="Loading applications..." />
           </div>
         </div>
       </div>

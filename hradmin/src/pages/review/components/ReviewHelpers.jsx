@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RANKING_RUBRICS } from '../../../data/rankingRubrics';
 import { supabase } from '../../../supabase';
+import Loader from '../../../components/Loader';
 
 const RANKS = [
   'Instructor I', 'Instructor II', 'Instructor III',
@@ -197,9 +198,7 @@ export function FacultyInfoCard({ facultyData, applicationData, onEditFinalScore
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
           Faculty Information
         </div>
-        <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
-          Loading faculty information...
-        </div>
+        <Loader message="Loading faculty information..." />
       </div>
     );
   }
@@ -264,6 +263,7 @@ export function DocumentViewer({ fileUrl, fileName, onClose }) {
     try {
       setIsDownloading(true);
       const response = await fetch(fileUrl);
+      if (!response.ok) throw new Error('Network response was not ok');
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -274,8 +274,8 @@ export function DocumentViewer({ fileUrl, fileName, onClose }) {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Error downloading PDF:', error);
-      alert('Failed to download PDF. Please try again.');
+      console.warn('Blob download failed (likely CORS), falling back to open in new tab:', error);
+      window.open(fileUrl, '_blank');
     } finally {
       setIsDownloading(false);
     }
@@ -1092,8 +1092,8 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                       document.body.removeChild(link);
                       window.URL.revokeObjectURL(url);
                     } catch (err) {
-                      console.error('Download failed:', err);
-                      alert('Unable to download file. Please try opening it in a new tab.');
+                      console.warn('Download failed (likely CORS), falling back to open in new tab:', err);
+                      window.open(getPublicFileUrl(viewerModalFile), '_blank');
                     }
                   }}
                   style={{
@@ -1171,8 +1171,8 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                         document.body.removeChild(link);
                         window.URL.revokeObjectURL(url);
                       } catch (err) {
-                        console.error('Download failed:', err);
-                        alert('Unable to download file. Please try opening it in a new tab.');
+                        console.warn('Download failed (likely CORS), falling back to open in new tab:', err);
+                        window.open(getPublicFileUrl(viewerModalFile), '_blank');
                       }
                     }}
                     style={{
@@ -1262,7 +1262,7 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                 />
               </div>
               {areaIVLoadingRows ? (
-                <div style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>Loading imported rows...</div>
+                <Loader message="Loading imported rows..." center={false} />
               ) : areaIVFilteredRows.length === 0 ? (
                 <div style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>No imported rows available</div>
               ) : (

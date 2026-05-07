@@ -11,7 +11,7 @@ import InviteFacultyModal from './usermanagement/InviteFacultyModal';
 import FacultyRow from './usermanagement/FacultyRow';
 import ViewPanel from './usermanagement/ViewPanel';
 import ApplyForInput from './usermanagement/ApplyForInput';
-
+import Loader from '../components/Loader';
 // ── Helper Functions ────────────────────────────────────────
 function parseIntegerOrNull(value) {
   const parsed = Number.parseInt(String(value).trim(), 10);
@@ -948,7 +948,7 @@ export default function UserManagement() {
 
           {/* Table */}
           {loading ? (
-            <p style={{ marginTop: '8px', fontSize: '0.8rem', color: '#6b7280' }}>Loading faculty users…</p>
+            <Loader message="Loading faculty users…" />
           ) : (
             <>
               <table>

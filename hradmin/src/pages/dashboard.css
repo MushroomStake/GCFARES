@@ -66,13 +66,20 @@ html, body, #root {
 .badge-warning   { background: #fef3c7; color: #92400e; border: 1px solid #fbbf24; }
 
 /* ══ BUTTONS ══════════════════════════════ */
-.btn        { padding: 8px 18px; border-radius: 7px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 500; cursor: pointer; border: none; transition: opacity 0.15s, transform 0.1s; }
-.btn:hover  { opacity: 0.88; }
-.btn:active { transform: scale(0.98); }
-.btn-edit   { background: var(--blue); color: #fff; }
-.btn-open   { background: var(--green-btn); color: #fff; }
-.btn-close  { background: var(--red); color: #fff; }
-.btn-save   { background: var(--blue); color: #fff; display: flex; align-items: center; gap: 6px; }
+.btn        { padding: 8px 18px; border-radius: 7px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.btn:active { transform: scale(0.97); }
+.btn-edit   { background: #ffffff; color: #334155; border-color: #cbd5e1; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.btn-edit:hover { background: #f8fafc; border-color: #94a3b8; }
+.btn-outline-warning { background: #fffbeb; color: #b45309; border-color: #fde68a; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.btn-outline-warning:hover { background: #fef3c7; border-color: #fcd34d; }
+.btn-outline-danger { background: #fef2f2; color: #b91c1c; border-color: #fecaca; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.btn-outline-danger:hover { background: #fee2e2; border-color: #fca5a5; }
+.btn-outline-success { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.btn-outline-success:hover { background: #dcfce7; border-color: #86efac; }
+.btn-primary { background: var(--green-btn); color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.btn-primary:hover { background: var(--green-mid); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); }
+.btn-save   { background: var(--green-btn); color: #fff; display: flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.btn-save:hover { background: var(--green-mid); }
 .btn-group  { display: flex; gap: 8px; }
 
 /* ══ CYCLE CARD ══════════════════════════ */
