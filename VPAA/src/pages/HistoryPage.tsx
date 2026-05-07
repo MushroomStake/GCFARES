@@ -37,7 +37,7 @@ const HistoryPage = () => {
           { data: appsData, error: appsError }
         ] = await Promise.all([
           supabase.from('ranking_cycles').select('*'),
-          supabase.from('applications').select('cycle_id, final_score')
+          supabase.from('applications').select('cycle_id, hr_score')
         ]);
 
         if (cyclesError) throw cyclesError;
@@ -54,7 +54,7 @@ const HistoryPage = () => {
           const totalFaculty = cycleApps.length;
           
           const totalPoints = cycleApps.reduce((sum, app) => {
-            const score = Number(app.final_score) || 0;
+            const score = Number(app.hr_score) || 0;
             return sum + score;
           }, 0);
           
