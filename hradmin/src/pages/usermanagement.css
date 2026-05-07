@@ -30,6 +30,81 @@ html, body, #root {
 .main-white { flex: 1; background: var(--white); overflow-y: auto; display: flex; flex-direction: column; }
 .content    { padding: 28px 32px; flex: 1; }
 
+.page-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* ══ PAGE HERO ════════════════════════════ */
+.um-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 10px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.um-eyebrow {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--green-mid);
+}
+
+.um-page-title {
+  margin: 0;
+  font-family: 'DM Sans', sans-serif;
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 700;
+  line-height: 1.05;
+  color: #1a3c2b;
+  letter-spacing: -0.01em;
+}
+
+.um-page-subtitle {
+  margin-top: 8px;
+  max-width: 760px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #64748b;
+}
+
+.um-hero-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.um-chip,
+.um-semester {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.um-semester {
+  background: #f9faf9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  font-style: italic;
+}
+
+.um-chip {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #dbeafe;
+}
+
 /* ══ PAGE HEADER ══════════════════════════ */
 .page-header    { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .page-header h2 { font-size: 1.1rem; font-weight: 600; color: var(--text); }
@@ -53,7 +128,6 @@ html, body, #root {
 /* ══ TOOLBAR ═════════════════════════════  */
 .toolbar       { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; }
 .toolbar-left  { display: flex; align-items: center; gap: 8px; }
-.toolbar-label { font-size: 0.85rem; font-weight: 500; color: var(--text); }
 .search-wrap   { position: relative; display: flex; align-items: center; }
 .search-wrap input { padding: 8px 12px 8px 32px; border: 1px solid var(--border); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; color: var(--text); background: #fafafa; outline: none; width: 200px; transition: border-color 0.2s; }
 .search-wrap input:focus        { border-color: var(--green-mid); }

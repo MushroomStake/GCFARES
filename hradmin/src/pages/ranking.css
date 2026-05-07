@@ -16,6 +16,20 @@
 /* ── Ranking-specific styles ─────────────── */
 /* Layout now handled by shared layout.css */
 
+.page-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.semester-tag {
+  font-size: 0.8rem;
+  color: #6b7280;
+  font-style: italic;
+  margin-bottom: 18px;
+}
+
 /* ── New section-based rubrics layout ───── */
 .rk-hero {
   display: flex;

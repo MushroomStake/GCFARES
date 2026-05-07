@@ -17,13 +17,10 @@ import {
 import Loader from '../components/Loader';
 // ══ MAIN COMPONENT ═══════════════════════════════════════════
 export default function Review() {
-  const [view, setView] = useState(() => localStorage.getItem('review_view') || 'list'); // 'list' | 'detail' | 'summary'
+  const [view, setView] = useState('list'); // 'list' | 'detail' | 'summary'
   const [loading, setLoading] = useState(true);
   const [applications, setApplications] = useState([]);
-  const [selectedApplication, setSelectedApplication] = useState(() => {
-    const stored = localStorage.getItem('review_selectedApplication');
-    return stored ? JSON.parse(stored) : null;
-  });
+  const [selectedApplication, setSelectedApplication] = useState(null);
   const [selectedFaculty, setSelectedFaculty] = useState(null);
   const [areaSubmissions, setAreaSubmissions] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -34,10 +31,7 @@ export default function Review() {
   const [expandedAreaId, setExpandedAreaId] = useState(null);
   const [draftScores, setDraftScores] = useState({});
   const [savingAreaId, setSavingAreaId] = useState(null);
-  const [selectedArea, setSelectedArea] = useState(() => {
-    const stored = localStorage.getItem('review_selectedArea');
-    return stored ? JSON.parse(stored) : null;
-  });
+  const [selectedArea, setSelectedArea] = useState(null);
   const [areaCriteria, setAreaCriteria] = useState([]);
   const [loadingAreaDetails, setLoadingAreaDetails] = useState(false);
   const [savingAreaScore, setSavingAreaScore] = useState(false);
@@ -48,37 +42,14 @@ export default function Review() {
 
   const APPLICATION_PAGE_SIZE = 10;
 
-  // Persist view state to localStorage
-  useEffect(() => {
-    localStorage.setItem('review_view', view);
-  }, [view]);
-
-  // Persist selectedApplication to localStorage
-  useEffect(() => {
-    if (selectedApplication) {
-      localStorage.setItem('review_selectedApplication', JSON.stringify(selectedApplication));
-    } else {
-      localStorage.removeItem('review_selectedApplication');
-    }
-  }, [selectedApplication]);
-
-  // Persist selectedArea to localStorage
-  useEffect(() => {
-    if (selectedArea) {
-      localStorage.setItem('review_selectedArea', JSON.stringify(selectedArea));
-    } else {
-      localStorage.removeItem('review_selectedArea');
-    }
-  }, [selectedArea]);
-
   // Fetch data on component mount
   useEffect(() => {
     fetchApplicationsData();
   }, []);
 
-  // When selectedApplication is restored from localStorage or changes, fetch its data
+  // Fetch area submissions when selectedApplication changes and we're in detail view, or when navigating to summary
   useEffect(() => {
-    if (selectedApplication?.id && view === 'detail' && areas.length > 0) {
+    if (selectedApplication?.id && areas.length > 0 && (view === 'detail' || view === 'summary')) {
       setSelectedFaculty(selectedApplication.faculty);
       fetchAreaSubmissions(selectedApplication.id);
     }
@@ -103,8 +74,8 @@ export default function Review() {
         allStatuses: debugAllParticipants?.map(p => ({ cycle_id: p.cycle_id, faculty_id: p.faculty_id, status: p.status, status_type: typeof p.status }))
       });
 
-      // Strategy: Find cycles that HAVE participants, prioritizing those with status open/submissions_closed
-      // First, get all cycles with any participants
+      // Strategy: use ranking_cycles as the source of truth for the active period.
+      // A newly created open cycle must be visible even before any participants exist.
       const { data: allCycles, error: allCyclesError } = await supabase
         .from('ranking_cycles')
         .select('*')
@@ -113,73 +84,16 @@ export default function Review() {
 
       console.log('📅 All cycles in system:', allCycles?.map(c => ({ id: c.cycle_id, status: c.status, sem: c.semester })));
 
-      // Get cycles that have accepted participants
-      const { data: cyclesWithParticipants, error: cyclesWithParticipantsError } = await supabase
-        .from('cycle_participants')
-        .select('cycle_id, status')
-        .eq('status', 'accepted');
-      if (cyclesWithParticipantsError) throw cyclesWithParticipantsError;
-
-      console.log('🔍 RAW cycle_participants query (status=accepted):', {
-        count: cyclesWithParticipants?.length || 0,
-        data: cyclesWithParticipants
-      });
-
-      // Also get ALL participants to see what statuses exist
-      const { data: allParticipantsDebug } = await supabase
-        .from('cycle_participants')
-        .select('cycle_id, status');
-      
-      const uniqueStatuses = new Set(allParticipantsDebug?.map(p => p.status) || []);
-      console.log('🔎 DEBUG: ALL participant statuses in system:', Array.from(uniqueStatuses));
-
-      // If no accepted found, try alternative statuses
-      if ((!cyclesWithParticipants || cyclesWithParticipants.length === 0) && allParticipantsDebug && allParticipantsDebug.length > 0) {
-        const firstStatus = allParticipantsDebug[0].status;
-        console.warn(`⚠️ No 'accepted' status found! First status in DB is: "${firstStatus}". Trying that...`);
-        
-        const { data: cyclesWithFirstStatus } = await supabase
-          .from('cycle_participants')
-          .select('cycle_id, status')
-          .eq('status', firstStatus);
-        
-        console.log(`🔄 Query with status="${firstStatus}":`, {
-          count: cyclesWithFirstStatus?.length || 0,
-          data: cyclesWithFirstStatus
-        });
-      }
-
-      const cycleIdsWithParticipants = new Set(
-        (cyclesWithParticipants || []).map((p) => p.cycle_id)
-      );
-      console.log('🎯 Cycles with accepted participants:', Array.from(cycleIdsWithParticipants));
-
-      // Filter to cycles that both (a) exist and (b) have participants
-      const cyclesWithData = (allCycles || []).filter((c) =>
-        cycleIdsWithParticipants.has(c.cycle_id)
-      );
-
-      console.log('✅ Cycles WITH participants:', cyclesWithData?.map(c => ({ id: c.cycle_id, status: c.status })));
-
-      // Prefer open/submissions_closed, otherwise latest
-      let activeCycle = cyclesWithData.find(c =>
-        ['open', 'submissions_closed'].includes(c.status)
-      ) || cyclesWithData[0];
+      // Use the newest created cycle as the source of truth.
+      // This keeps the last cycle visible when it is finished, until a newer cycle is created.
+      const activeCycle = (allCycles || [])[0] || null;
 
       if (!activeCycle) {
-        console.warn('❌ No cycles with participants found');
+        console.warn('❌ No active cycle found');
         console.log('🔴 COMPREHENSIVE DEBUG INFO:', {
           totalCycles: allCycles?.length,
           allCycleIds: allCycles?.map(c => ({ id: c.cycle_id, status: c.status })),
-          totalParticipants: debugAllParticipants?.length,
-          participantsByStatus: {
-            allRecords: allParticipantsDebug?.length,
-            cycleIdsInParticipants: Array.from(cycleIdsWithParticipants),
-            acceptedCount: cyclesWithParticipants?.length
-          },
-          cycleIdsWithDataCount: cyclesWithData?.length,
-          cycleIdsWithData: cyclesWithData?.map(c => c.cycle_id),
-          sample_first_participant: debugAllParticipants?.[0]
+          sample_first_cycle: allCycles?.[0]
         });
         setCurrentCycle(null);
         setApplications([]);
@@ -590,8 +504,6 @@ export default function Review() {
 
   const handleReviewClick = async (application) => {
     setSelectedApplication(application);
-    setSelectedFaculty(application.faculty);
-    await fetchAreaSubmissions(application.id);
     setView('detail');
   };
 
@@ -606,6 +518,7 @@ export default function Review() {
 
   const handleBackToDetail = () => {
     setView('detail');
+    setView((currentView) => currentView === 'summary' ? 'detail' : currentView);
   };
 
   const handleToggleArea = (areaId) => {
@@ -695,9 +608,48 @@ export default function Review() {
 
         return submission;
       });
-      setAreaSubmissions(updatedSubmissions);
 
-      const totalScore = calculateTotalScore(updatedSubmissions);
+      const enrichedSubmissions = await Promise.all(
+        updatedSubmissions.map(async (submission) => {
+          if (submission.is_placeholder) {
+            return {
+              ...submission,
+              capped_score: 0,
+              excess_score: 0
+            };
+          }
+
+          try {
+            const response = await fetch(
+              `http://localhost:5000/review/submission-scoring/${submission.submission_id}`
+            );
+            const scoringData = await response.json();
+            
+            const totalScore = Number(scoringData.totalScore || 0);
+            const areaMax = Number(submission.area?.max_possible_points || 85);
+            const cappedScore = Math.min(totalScore, areaMax);
+            const excessScore = Math.max(0, totalScore - areaMax);
+            
+            return {
+              ...submission,
+              capped_score: cappedScore,
+              excess_score: excessScore,
+              hr_points: totalScore
+            };
+          } catch (error) {
+            console.warn(`Failed to fetch scoring for submission ${submission.submission_id}:`, error);
+            return {
+              ...submission,
+              capped_score: 0,
+              excess_score: 0
+            };
+          }
+        })
+      );
+
+      setAreaSubmissions(enrichedSubmissions);
+
+      const totalScore = calculateTotalScore(enrichedSubmissions);
 
       if (selectedApplication?.id) {
         const { error: appUpdateError } = await supabase
@@ -788,6 +740,9 @@ export default function Review() {
     try {
       const now = new Date().toISOString();
 
+      // Update application status to HR_Completed
+      // NOTE: Do NOT modify user status here - user status should only change when a new cycle is created,
+      // not based on application completion status
       const { error: updateError } = await supabase
         .from('applications')
         .update({
@@ -1070,17 +1025,25 @@ export default function Review() {
   const paginatedApplications = sortedApplications.slice(applicationPageStart, applicationPageEnd);
 
   // Convert area submissions to the format expected by AreaCard
-  const submittedAreas = areaSubmissions.map(submission => ({
-    id: submission.id,
-    submission_id: submission.id,
-    part_id: submission.part_id,
-    file_path: submission.file_path,
-    label: submission.area.area_name,
-    area_id: submission.area.area_id,
-    max: Number(submission.area.max_possible_points || 0),
-    score: Number(submission.hr_points || 0).toFixed(2),
-    criteria: [] // For now, we'll keep this empty since criteria would need separate implementation
-  }));
+  const submittedAreas = areaSubmissions.map(submission => {
+    const cappedScore = Number(submission.capped_score || 0);
+    const excessScore = Number(submission.excess_score || 0);
+    const max = Number(submission.area.max_possible_points || 0);
+    
+    return {
+      id: submission.id,
+      submission_id: submission.id,
+      part_id: submission.part_id,
+      file_path: submission.file_path,
+      label: submission.area.area_name,
+      area_id: submission.area.area_id,
+      max,
+      score: Number(submission.hr_points || 0).toFixed(2),
+      cappedScore: cappedScore.toFixed(2),
+      excessScore: excessScore > 0 ? excessScore.toFixed(2) : 0,
+      criteria: [] // For now, we'll keep this empty since criteria would need separate implementation
+    };
+  });
 
   const selectedDisplayScore = selectedApplication
     ? (selectedApplication.final_score ?? selectedApplication.hr_score ?? areaSubmissions.reduce((sum, submission) => sum + Number(submission.hr_points || 0), 0))
@@ -1126,11 +1089,8 @@ export default function Review() {
 
       <div className="main">
         <div className="content">
-
-          <div className="rk-card-header">
-            <span className="rk-card-title">Review and Score</span>
-            <span className="rk-semester">{currentCycle ? `${currentCycle.semester} ${currentCycle.year}` : '1st Semester AY 2026–2027'}</span>
-          </div>
+          <div className="page-title">Review &amp; Score</div>
+          <div className="semester-tag">{currentCycle ? `${currentCycle.semester} ${currentCycle.year}` : '1st Semester AY 2026–2027'}</div>
 
           {/* ── LIST VIEW ── */}
           {view === 'list' && (

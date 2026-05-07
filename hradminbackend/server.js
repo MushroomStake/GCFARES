@@ -426,34 +426,47 @@ app.post("/add-faculty", async (req, res) => {
   }
 });
 
-// Invite a faculty member: send Supabase Auth email invite and create SQL user row
-app.post("/invite-faculty", async (req, res) => {
-  const { email, name_first, name_last, cycle_id, invited_by } = req.body;
+app.post("/users/create", async (req, res) => {
+  const {
+    email,
+    name_first,
+    name_middle,
+    name_last,
+    department_id,
+    current_rank,
+    nature_of_appointment,
+    last_promotion_date,
+    cycle_id,
+    invited_by,
+    password,
+  } = req.body || {};
 
-  if (!email || !name_first || !name_last) {
-    return res.status(400).json({ error: "email, name_first and name_last are required" });
+  if (!email || !name_first || !name_last || !password) {
+    return res.status(400).json({ error: "email, name_first, name_last, and password are required" });
   }
 
   try {
-    // 1) Send invite email via Supabase Auth
-    const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-      data: {
+    // Create the auth account directly, no invite email.
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
         name_first,
+        name_middle: name_middle || null,
         name_last,
         role: "Faculty",
       },
     });
 
-    if (inviteError) {
-      console.error("Error sending invite:", inviteError);
-      return res.status(500).json({ error: "Failed to send invite" });
+    if (authError) {
+      console.error("Error creating auth user:", authError);
+      return res.status(500).json({ error: authError.message || "Failed to create user" });
     }
 
-    // 2) Create matching row in users table (SQL) for HR system
     const now = new Date().toISOString();
-    // If a cycle is provided (or there is a current cycle), mark the new user as 'ranking'
     const resolvedCycleId = cycle_id || (await resolveCurrentCycleId());
-    const defaultStatus = resolvedCycleId ? 'ranking' : 'active';
+    const defaultStatus = resolvedCycleId ? 'ranking' : 'inactive';
 
     const { data: dbUsers, error: insertError } = await supabase
       .from("users")
@@ -461,9 +474,14 @@ app.post("/invite-faculty", async (req, res) => {
         {
           name_last,
           name_first,
+          name_middle: name_middle || null,
           domain_email: email,
           password_hash: "supabase-auth",
           role: "Faculty",
+          department_id: department_id || null,
+          current_rank: current_rank || null,
+          nature_of_appointment: nature_of_appointment || null,
+          last_promotion_date: last_promotion_date || null,
           status: defaultStatus,
           is_first_login: true,
           created_at: now,
@@ -474,8 +492,8 @@ app.post("/invite-faculty", async (req, res) => {
     if (insertError) {
       console.error("Error creating faculty row:", insertError);
       return res.status(200).json({
-        message: "Invite sent, but failed to create faculty record.",
-        inviteUser: inviteData?.user ?? null,
+        message: "User created in auth, but failed to create faculty record.",
+        authUser: authData?.user ?? null,
         dbUser: null,
         warning: insertError.message,
       });
@@ -484,34 +502,33 @@ app.post("/invite-faculty", async (req, res) => {
     const faculty = Array.isArray(dbUsers) && dbUsers.length > 0 ? dbUsers[0] : null;
 
     let participant = null;
-    if (resolvedCycleId) {
+    if (resolvedCycleId && faculty?.user_id) {
       const participantResult = await upsertCycleParticipant({
         cycleId: resolvedCycleId,
-        facultyId: faculty?.user_id || null,
+        facultyId: faculty.user_id,
         inviteEmail: email,
         status: "accepted",
         invitedBy: invited_by || null,
       });
 
       if (participantResult.error) {
-        console.warn("Invite succeeded but participant row failed:", participantResult.error?.message || participantResult.error);
+        console.warn("User created but participant row failed:", participantResult.error?.message || participantResult.error);
       } else {
         participant = participantResult.data;
       }
     }
 
     return res.status(200).json({
-      message: "Invitation email sent and faculty record created.",
-      inviteUser: inviteData?.user ?? null,
+      message: "User created successfully and authenticated.",
+      authUser: authData?.user ?? null,
       dbUser: faculty,
       participant,
     });
   } catch (err) {
-    console.error("Unhandled error in /invite-faculty:", err);
-    return res.status(500).json({ error: "Server error while inviting faculty" });
+    console.error("Unhandled error in /users/create:", err);
+    return res.status(500).json({ error: "Server error while creating user" });
   }
 });
-
 // ══════════════════════════════════════════
 // PERFORMANCE EVALUATION ENDPOINTS
 // ══════════════════════════════════════════

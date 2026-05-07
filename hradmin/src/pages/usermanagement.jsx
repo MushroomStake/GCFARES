@@ -7,10 +7,11 @@ import EducationModal from './usermanagement/EducationModal';
 import EligibilityModal from './usermanagement/EligibilityModal';
 import DoctoralModal from './usermanagement/DoctoralModal';
 import ConfirmDeleteModal from './usermanagement/ConfirmDeleteModal';
-import InviteFacultyModal from './usermanagement/InviteFacultyModal';
+
 import FacultyRow from './usermanagement/FacultyRow';
 import ViewPanel from './usermanagement/ViewPanel';
 import ApplyForInput from './usermanagement/ApplyForInput';
+import AddUserModal from './usermanagement/AddUserModal';
 import Loader from '../components/Loader';
 // ── Helper Functions ────────────────────────────────────────
 function parseIntegerOrNull(value) {
@@ -173,6 +174,7 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
   const [eligModalOpen, setEligModalOpen] = useState(false);
   const [doctoralModalOpen, setDoctoralModalOpen] = useState(false);
   
+  const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -264,11 +266,49 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
     setSaving(true);
     setError('');
     try {
+      // Creating new user
       if (!faculty?.id) {
-        setError('Faculty ID is required');
+        if (!form.email.trim()) {
+          setError('Email is required to create a new user');
+          return;
+        }
+
+        if (!password.trim()) {
+          setError('Password is required to create a new user');
+          return;
+        }
+
+        if (password.length < 6) {
+          setError('Password must be at least 6 characters');
+          return;
+        }
+
+        const response = await fetch('http://localhost:5000/users/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: form.email.trim(),
+            name_first: form.nameFirst.trim(),
+            name_middle: form.nameMiddle?.trim() || null,
+            name_last: form.nameLast.trim(),
+            current_rank: form.presentRank || null,
+            nature_of_appointment: form.natureOfAppointment || null,
+            last_promotion_date: form.lastPromotionDate || null,
+            password: password,
+            cycle_id: selectedCycleId || null,
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to create user');
+        }
+
+        onSaved();
         return;
       }
 
+      // Updating existing user
       const updateData = {
         name_last: form.nameLast.trim(),
         name_first: form.nameFirst.trim(),
@@ -402,22 +442,30 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: !faculty?.id ? '1fr 1fr' : '1fr', gap: '16px', marginBottom: '24px' }}>
             <div className="field-group">
-              <label>Email</label>
-              <input className="field-input" type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="faculty@gordoncollege.edu.ph" disabled style={{ backgroundColor: '#f3f4f6', cursor: 'not-allowed' }} />
+              <label>Email {!faculty?.id && '*'}</label>
+              <input className="field-input" type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="faculty@gordoncollege.edu.ph" disabled={!!faculty?.id} style={faculty?.id ? { backgroundColor: '#f3f4f6', cursor: 'not-allowed' } : {}} />
             </div>
-            <div className="field-group">
-              <label>Department</label>
-              <div className="select-field">
-                <select value={form.department} onChange={e => set('department', e.target.value)}>
-                  <option value="">Select Department</option>
-                  {orderedDepartmentOptions.map((d) => (
-                    <option key={d.value} value={d.value}>{d.label}</option>
-                  ))}
-                </select>
+            {!faculty?.id && (
+              <div className="field-group">
+                <label>Password *</label>
+                <input className="field-input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password (min 6 characters)" />
               </div>
-            </div>
+            )}
+            {faculty?.id && (
+              <div className="field-group">
+                <label>Department</label>
+                <div className="select-field">
+                  <select value={form.department} onChange={e => set('department', e.target.value)}>
+                    <option value="">Select Department</option>
+                    {orderedDepartmentOptions.map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '24px' }}>
@@ -635,9 +683,6 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
 // ── Faculty Row ──────────────────────────────────────────────
 // FacultyRow extracted to ./usermanagement/FacultyRow.jsx
 
-// ── Invite Faculty Modal ────────────────────────────────────
-// InviteFacultyModal extracted to ./usermanagement/InviteFacultyModal.jsx
-
 // ── User Management Page ─────────────────────────────────────
 export default function UserManagement() {
   const DEPARTMENT_ORDER = ['CCS', 'CHTM', 'CBA', 'CAHS', 'CEAS'];
@@ -662,16 +707,12 @@ export default function UserManagement() {
   };
 
   const [selected, setSelected]         = useState(null);
-  const [addingNew, setAddingNew]       = useState(false);
+  const [showAddUser, setShowAddUser]   = useState(false);
   const [viewing, setViewing]           = useState(null);
   const [search, setSearch]             = useState('');
   const [deptFilter, setDeptFilter]     = useState('All Departments');
   const [statusFilter, setStatusFilter] = useState('All Status');
-  const [showInvite, setShowInvite]     = useState(false);
   // sync flow removed; using `users.status` ('ranking' / 'inactive') as source of participation
-  const [inviteForm, setInviteForm]     = useState({ firstName: '', lastName: '', email: '' });
-  const [inviteStatus, setInviteStatus] = useState('');
-  const [inviteLoading, setInviteLoading] = useState(false);
   const [loading, setLoading]           = useState(true);
   const [loadError, setLoadError]       = useState('');
   const [departments, setDepartments]   = useState([]);
@@ -693,6 +734,7 @@ export default function UserManagement() {
     setLoading(true);
     setLoadError('');
     try {
+      // Get all users
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -702,6 +744,26 @@ export default function UserManagement() {
 
       if (error) throw error;
 
+      // Get current cycle for checking active participants
+      const { data: allCycles } = await supabase
+        .from('ranking_cycles')
+        .select('cycle_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const currentCycleId = allCycles?.[0]?.cycle_id;
+
+      // Get active participants in current cycle
+      const { data: participants } = currentCycleId
+        ? await supabase
+            .from('cycle_participants')
+            .select('faculty_id')
+            .eq('cycle_id', currentCycleId)
+            .eq('status', 'accepted')
+        : { data: [] };
+
+      const activeParticipantIds = new Set((participants || []).map(p => p.faculty_id));
+
       const mapped = (data || [])
         .filter((u) => (u?.role || '').toString().trim().toLowerCase() !== 'vpaa')
         .map((u) => {
@@ -709,19 +771,25 @@ export default function UserManagement() {
         const eligList = Array.isArray(u.eligibility_exams_json) ? u.eligibility_exams_json.map(normalizeEligibilityEntry) : [];
         const docList = Array.isArray(u.doctorate) ? u.doctorate.map(normalizeDoctorateEntry) : [];
 
+        // Determine status: if they're an active participant in current cycle, they should be 'ranking'
+        // Don't change status based on application HR_Completed - only based on cycle participation
+        const determinedStatus = (function(){
+          const isActiveParticipant = activeParticipantIds.has(u.user_id);
+          if (isActiveParticipant) return 'ranking';
+          
+          const s = (u.status || '').toString().toLowerCase();
+          if (s.includes('inactive')) return 'inactive';
+          if (s.includes('rank') || s === 'ranking' || s === 'for ranking') return 'ranking';
+          return 'ranking';
+        })();
+
         return {
           id: u.user_id,
           name: `${u.name_last}, ${u.name_first}`,
           email: u.domain_email,
           department: u.department_id ?? '',
           presentRank: u.current_rank ?? '',
-          // normalize status values to canonical tokens used in UI: 'ranking' | 'inactive'
-          status: (function(){
-            const s = (u.status || '').toString().toLowerCase();
-            if (s.includes('inactive')) return 'inactive';
-            if (s.includes('rank') || s === 'ranking' || s === 'for ranking') return 'ranking';
-            return 'ranking';
-          })(),
+          status: determinedStatus,
           createdAt: u.created_at ? new Date(u.created_at).toLocaleDateString() : '',
           // Education, Eligibility, Doctorate data
           educationList: eduList,
@@ -730,6 +798,7 @@ export default function UserManagement() {
           // Experience fields
           teachingYears: u.teaching_experience_years ?? null,
           industryYears: u.industry_experience_years ?? null,
+          createdAtRaw: u.created_at ?? null,
           // Other fields
           natureOfAppointment: u.nature_of_appointment ?? 'Permanent',
           currentSalary: u.current_salary ?? '',
@@ -780,10 +849,26 @@ export default function UserManagement() {
       const rows = Array.isArray(data) ? data : [];
       setCycles(rows);
 
-      if (!selectedCycleId && rows.length > 0) {
-        const open = rows.find((c) => c.status === 'open');
-        const fallback = open || rows[0];
-        setSelectedCycleId(String(fallback.cycle_id));
+      if (rows.length > 0) {
+        const newestCycleId = String(rows[0].cycle_id);
+        setSelectedCycleId((currentSelectedId) => {
+          if (!currentSelectedId) {
+            return newestCycleId;
+          }
+
+          const currentIndex = rows.findIndex((c) => String(c.cycle_id) === String(currentSelectedId));
+          const newestIndex = rows.findIndex((c) => String(c.cycle_id) === newestCycleId);
+
+          if (currentIndex === -1) {
+            return newestCycleId;
+          }
+
+          if (newestIndex !== -1 && newestIndex < currentIndex) {
+            return newestCycleId;
+          }
+
+          return currentSelectedId;
+        });
       }
     } catch (err) {
       console.error('Failed to load cycles', err);
@@ -813,56 +898,23 @@ export default function UserManagement() {
 
   const handleSaved = () => {
     setSelected(null);
-    setAddingNew(false);
+    setShowAddUser(false);
     fetchFaculty();
   };
 
-  const handleInviteChange = (field, value) => {
-    setInviteForm((prev) => ({ ...prev, [field]: value }));
+  const handleUserCreated = () => {
+    setShowAddUser(false);
+    fetchFaculty();
   };
 
-  const handleInviteSubmit = async (e) => {
-    e.preventDefault();
-    setInviteStatus('');
 
-    if (!inviteForm.firstName.trim() || !inviteForm.lastName.trim() || !inviteForm.email.trim()) {
-      setInviteStatus('First name, last name, and email are required.');
-      return;
-    }
-
-    setInviteLoading(true);
-    try {
-      const response = await fetch('http://localhost:5000/invite-faculty', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: inviteForm.email.trim(),
-          name_first: inviteForm.firstName.trim(),
-          name_last: inviteForm.lastName.trim(),
-          cycle_id: selectedCycleId || null,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to send invite');
-      }
-
-      setInviteStatus(data.message || 'Invitation email sent successfully.');
-      setInviteForm({ firstName: '', lastName: '', email: '' });
-      fetchFaculty();
-    } catch (err) {
-      setInviteStatus(err.message || 'Error sending invite');
-    } finally {
-      setInviteLoading(false);
-    }
-  };
 
   // Status is now managed via EditPanel; admin changes status to include/exclude from ranking
 
   // Confirmation flow removed — inclusion confirms immediately by setting users.status and participant row
 
-  const filteredFaculty = facultyList.filter((faculty) => {
+  const filteredFaculty = facultyList
+    .filter((faculty) => {
     const term = search.trim().toLowerCase();
     const matchesSearch = !term || `${faculty.name} ${faculty.email}`.toLowerCase().includes(term);
     const matchesDepartment = deptFilter === 'All Departments' || String(faculty.department) === String(deptFilter);
@@ -871,7 +923,26 @@ export default function UserManagement() {
       (statusFilter === 'For Ranking' && faculty.status === 'ranking') ||
       (statusFilter === 'Inactive' && faculty.status === 'inactive');
     return matchesSearch && matchesDepartment && matchesStatus;
-  });
+  })
+    .sort((a, b) => {
+      const aHasApplyingFor = Array.isArray(a.applyingFor) ? a.applyingFor.length > 0 : Boolean(String(a.applyingFor || '').trim());
+      const bHasApplyingFor = Array.isArray(b.applyingFor) ? b.applyingFor.length > 0 : Boolean(String(b.applyingFor || '').trim());
+
+      if (aHasApplyingFor !== bHasApplyingFor) {
+        return aHasApplyingFor ? -1 : 1;
+      }
+
+      const aStatusRank = a.status === 'ranking' ? 1 : 0;
+      const bStatusRank = b.status === 'ranking' ? 1 : 0;
+
+      if (aStatusRank !== bStatusRank) {
+        return bStatusRank - aStatusRank;
+      }
+
+      const aCreated = a.createdAtRaw ? new Date(a.createdAtRaw).getTime() : 0;
+      const bCreated = b.createdAtRaw ? new Date(b.createdAtRaw).getTime() : 0;
+      return bCreated - aCreated;
+    });
 
   useEffect(() => {
     setFacultyPage(1);
@@ -882,6 +953,8 @@ export default function UserManagement() {
   const facultyPageStart = (safeFacultyPage - 1) * FACULTY_PAGE_SIZE;
   const facultyPageEnd = facultyPageStart + FACULTY_PAGE_SIZE;
   const paginatedFaculty = filteredFaculty.slice(facultyPageStart, facultyPageEnd);
+
+  const currentCycle = cycles.find((cycle) => String(cycle.cycle_id) === String(selectedCycleId)) || cycles[0] || null;
 
   const cycleLabel = (cycle) => {
     if (!cycle) return '';
@@ -896,10 +969,12 @@ export default function UserManagement() {
 
       <div className="main">
         <div className="content">
+          <div className="page-title">Faculty Users</div>
+          <div className="semester-tag">{currentCycle ? cycleLabel(currentCycle) : 'No active period selected'} • {facultyList.length} users</div>
+
           {/* Toolbar */}
           <div className="toolbar">
             <div className="toolbar-left">
-              <span className="toolbar-label">Faculty Users</span>
               <div className="search-wrap">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input
@@ -935,9 +1010,9 @@ export default function UserManagement() {
                 </select>
               </div>
             </div>
-            <button className="btn btn-add" onClick={() => setShowInvite(true)}>
+            <button className="btn btn-add" onClick={() => setShowAddUser(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Invite Faculty
+              Add User
             </button>
               {/* Sync removed — participation is driven by the user's Status (For Ranking) */}
           </div>
@@ -1025,26 +1100,25 @@ export default function UserManagement() {
           onClose={() => setViewing(null)}
         />
       )}
-      {(selected || addingNew) && (
+      {selected && (
         <EditPanel
           faculty={selected}
           departments={departments}
           selectedCycleId={selectedCycleId}
           cycles={cycles}
-          onClose={() => { setSelected(null); setAddingNew(false); }}
+          onClose={() => { setSelected(null); }}
           onSaved={handleSaved}
         />
       )}
-      {showInvite && (
-        <InviteFacultyModal
-          form={inviteForm}
-          status={inviteStatus}
-          loading={inviteLoading}
-          onChange={handleInviteChange}
-          onSubmit={handleInviteSubmit}
-          onClose={() => { setShowInvite(false); setInviteStatus(''); }}
+      {showAddUser && (
+        <AddUserModal
+          selectedCycleId={selectedCycleId}
+          departments={departments}
+          onCreated={handleUserCreated}
+          onClose={() => { setShowAddUser(false); }}
         />
       )}
+
       {/* sync UI removed */}
     </div>
   );

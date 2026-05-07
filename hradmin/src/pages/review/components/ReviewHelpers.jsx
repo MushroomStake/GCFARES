@@ -1337,7 +1337,17 @@ export function AreaCard({ area, isExpanded, isSelected, draftScore, onToggle, o
           </div>
         </div>
         <div className="area-card-right">
-          <span className="area-score">{area.score}</span>
+          <div style={{ textAlign: 'right' }}>
+            <div className="area-score">{area.cappedScore || area.score}</div>
+            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+              / {area.max} pts
+            </div>
+            {Number(area.excessScore) > 0 && (
+              <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '4px', fontWeight: '500' }}>
+                +{area.excessScore}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

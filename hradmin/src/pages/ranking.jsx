@@ -141,17 +141,8 @@ export default function Ranking() {
 
       <div className="main">
         <div className="content">
-          <div className="rk-hero">
-            <div>
-              <p className="rk-eyebrow">Rubrics Administration</p>
-              <h1 className="rk-page-title">Ranking Rubrics</h1>
-              <p className="rk-page-subtitle">Manage rubric sections and upload templates per sub-area.</p>
-            </div>
-            <div className="rk-hero-meta">
-              <span className="rk-semester">1st Semester AY 2026–2027</span>
-              <span className="rk-chip">{RANKING_RUBRICS.length} areas</span>
-            </div>
-          </div>
+          <div className="page-title">Ranking Rubrics</div>
+          <div className="semester-tag">Manage rubric sections and upload templates per sub-area.</div>
 
           <div className="rk-section-layout">
             <aside className="rk-area-sidebar">
