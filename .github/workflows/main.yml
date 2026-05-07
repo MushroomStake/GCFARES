@@ -1,0 +1,25 @@
+name: Workflow Testing
+
+on:
+  push:
+    branches:
+      - main
+      - team-a
+      - team-b
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Show Files
+        run: ls -la
+
+      - name: Test Message
+        run: echo "Workflow is working successfully!"
