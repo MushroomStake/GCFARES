@@ -248,11 +248,12 @@ const styles = `
     margin:10px 0 12px 0;
   }
   .pf-privacy-list li {
-    display:flex; align-items:flex-start; gap:8px;
+    position:relative; display:block; padding-left:18px;
     font-size:13px; color:var(--text-mid); line-height:1.5;
   }
   .pf-privacy-list li::before {
-    content:'▸'; color:var(--gc-gold); flex-shrink:0; font-size:11px; margin-top:2px;
+    content:'>'; position:absolute; left:0; top:1px;
+    color:var(--gc-gold); font-size:11px;
   }
 
   /* ── NOTICES ── */
@@ -507,6 +508,9 @@ const AREA_SUBMISSION_TABLE_CANDIDATES = (
     .filter(Boolean);
 const TOAST_TTL_MS = 3200;
 const USER_TABLE = "users";
+const PROFILE_LAST_NAME_KEYS = ["name_last", "last_name", "lastname", "surname", "family_name", "lastName"];
+const PROFILE_FIRST_NAME_KEYS = ["name_first", "first_name", "firstname", "given_name", "firstName"];
+const PROFILE_MIDDLE_NAME_KEYS = ["name_middle", "middle_name", "middlename", "middleName"];
 
 function parseIntegerOrNull(value) {
     const parsed = Number.parseInt(String(value).trim(), 10);
@@ -697,6 +701,17 @@ function sanitizeFileName(fileName) {
         .replace(/\s+/g, "_")
         .replace(/[^a-zA-Z0-9._-]/g, "")
         .slice(0, 120);
+}
+
+async function queryPlainRowsWithTableFromCandidates(candidates, limit = 300) {
+    for (const table of candidates) {
+        const result = await supabase.from(table).select("*").limit(limit);
+        if (!result.error && Array.isArray(result.data)) {
+            return { table, rows: result.data };
+        }
+    }
+
+    return { table: null, rows: [] };
 }
 
 async function queryRowsWithTableFromCandidates(candidates, limit = 300) {
@@ -1404,9 +1419,9 @@ export default function Profile({ user }) {
     const [activeCycleRow, setActiveCycleRow] = useState(null);
     const [profilePicture, setProfilePicture] = useState(user?.profile_picture || user?.avatar_url || "");
     const [memberSince, setMemberSince] = useState(formatShortDate(user?.created_at, ""));
-    const [lastName, setLastName] = useState(user?.name_last || user?.last_name || "");
-    const [firstName, setFirstName] = useState(user?.name_first || user?.first_name || "");
-    const [middleName, setMiddleName] = useState(user?.middle_name || "");
+    const [lastName, setLastName] = useState(getFirstValue(user, PROFILE_LAST_NAME_KEYS, ""));
+    const [firstName, setFirstName] = useState(getFirstValue(user, PROFILE_FIRST_NAME_KEYS, ""));
+    const [middleName, setMiddleName] = useState(getFirstValue(user, PROFILE_MIDDLE_NAME_KEYS, ""));
     const [altEmail, setAltEmail] = useState(user?.personal_email || user?.alternate_email || user?.alt_email || "");
     const [department, setDepartment] = useState(user?.department_name || "");
     const [currentRank, setCurrentRank] = useState(user?.current_rank || user?.rank || "");
@@ -1494,18 +1509,18 @@ export default function Profile({ user }) {
         }, TOAST_TTL_MS);
     };
 
+    const applyText = (nextValue, setState) => {
+        if (nextValue !== undefined && nextValue !== null && String(nextValue).trim() !== "") {
+            setState(String(nextValue));
+        }
+    };
+
     useEffect(() => {
         if (!user) return;
 
-        const applyText = (nextValue, setState) => {
-            if (nextValue !== undefined && nextValue !== null && String(nextValue).trim() !== "") {
-                setState(String(nextValue));
-            }
-        };
-
-        applyText(user?.name_last ?? user?.last_name, setLastName);
-        applyText(user?.name_first ?? user?.first_name, setFirstName);
-        applyText(user?.middle_name, setMiddleName);
+        applyText(getFirstValue(user, PROFILE_LAST_NAME_KEYS, null), setLastName);
+        applyText(getFirstValue(user, PROFILE_FIRST_NAME_KEYS, null), setFirstName);
+        applyText(getFirstValue(user, PROFILE_MIDDLE_NAME_KEYS, null), setMiddleName);
         applyText(user?.personal_email ?? user?.alternate_email ?? user?.alt_email, setAltEmail);
         applyText(user?.current_rank ?? user?.rank, setCurrentRank);
         applyText(user?.nature_of_appointment ?? user?.appointment_type, setNatureOfAppointment);
@@ -1596,9 +1611,9 @@ export default function Profile({ user }) {
 
             // Apply userRow if found
             if (isActive && userRow) {
-                setLastName(String(getFirstValue(userRow, ["last_name", "lastname", "surname"], "")));
-                setFirstName(String(getFirstValue(userRow, ["first_name", "firstname", "given_name"], "")));
-                setMiddleName(String(getFirstValue(userRow, ["middle_name", "middlename"], "")));
+                applyText(getFirstValue(userRow, PROFILE_LAST_NAME_KEYS, null), setLastName);
+                applyText(getFirstValue(userRow, PROFILE_FIRST_NAME_KEYS, null), setFirstName);
+                applyText(getFirstValue(userRow, PROFILE_MIDDLE_NAME_KEYS, null), setMiddleName);
                 setAltEmail(String(getFirstValue(userRow, ["personal_email", "alternate_email", "alt_email"], "")));
                 setDepartment(String(getFirstValue(userRow, ["department_name", "department", "dept"], "")));
                 setCurrentRank(String(getFirstValue(userRow, ["current_rank", "rank", "faculty_rank"], "")));
@@ -1632,34 +1647,16 @@ export default function Profile({ user }) {
                 if (doctorate.length > 0) setDoctoralList(doctorate.map(normalizeDoctorateEntry));
             }
 
-            // Fetch area submissions using targeted queries.
+            // Fetch Area IV performance rows without probing optional columns that may not exist.
             const useNumeric = isNumericId(userId);
-
-            const areaSubmissionsPromise = (async () => {
-                const subsTable = AREA_SUBMISSION_TABLE_CANDIDATES[0] || "area_submissions";
-                // prefer targeted filters to avoid scanning tables
-                if (useNumeric) {
-                    const r = await supabase.from(subsTable).select("*").eq("user_id", parseIntegerOrNull(userId)).order("created_at", { ascending: false }).limit(100);
-                    if (!r.error && Array.isArray(r.data)) return { table: subsTable, rows: r.data };
-                }
-                if (userEmail) {
-                    // try matching email/domain_email
-                    const encoded = userEmail;
-                    const r = await supabase.from(subsTable).select("*").or(`email.eq.${encoded},domain_email.eq.${encoded}`).order("created_at", { ascending: false }).limit(100);
-                    if (!r.error && Array.isArray(r.data)) return { table: subsTable, rows: r.data };
-                }
-                // last fallback: probe table candidates
-                return await queryRowsWithTableFromCandidates(AREA_SUBMISSION_TABLE_CANDIDATES, 100);
-            })();
-
-            const areaResult = await areaSubmissionsPromise;
+            const areaResult = await queryPlainRowsWithTableFromCandidates(AREA_SUBMISSION_TABLE_CANDIDATES, 100);
 
             // process area submissions
             if (isActive && areaResult && Array.isArray(areaResult.rows) && areaResult.rows.length > 0) {
                 const areaRows = areaResult.rows.filter((row) => {
                     const rowUserId = String(getFirstValue(row, ["user_id", "faculty_id", "uid"], ""));
-                    const rowEmail = String(getFirstValue(row, ["email", "user_email"], ""));
-                    const areaId = String(getFirstValue(row, ["area_id", "area"], ""));
+                    const rowEmail = String(getFirstValue(row, ["email", "domain_email", "user_email"], ""));
+                    const areaId = String(getFirstValue(row, ["area_id", "area", "areaId"], ""));
                     const forUser = useNumeric ? (rowUserId && rowUserId === String(userId)) : (userEmail && rowEmail === String(userEmail));
                     return forUser && (areaId === "IV" || areaId === "Area IV" || areaId === "IV-auto");
                 });
