@@ -14,8 +14,9 @@ export default function Login() {
     e.preventDefault();
     setError('');
     try {
+      const fullEmail = email.includes('@') ? email : `${email}@gordoncollege.edu.ph`;
       const { error } = await supabase.auth.signInWithPassword({
-        email,
+        email: fullEmail,
         password,
       });
       if (error) {
@@ -76,18 +77,21 @@ export default function Login() {
         <div className="login-card">
           <form onSubmit={handleSubmit}>
             <div className="form-group">
-              <label htmlFor="email">Email Address</label>
-              <input
-                type="email" id="email"
-                placeholder="admin@gordoncollege.edu"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+              <label htmlFor="email">GC EMAIL ADDRESS</label>
+              <div className="email-input-group">
+                <input
+                  type="text" id="email"
+                  placeholder="e.g john.doe"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+                <span className="domain-suffix">@gordoncollege.edu.ph</span>
+              </div>
             </div>
             <div className="form-group">
-              <label htmlFor="password">Password</label>
+              <label htmlFor="password">PASSWORD</label>
               <div className="password-wrapper">
                 <input
                   type={showPassword ? "text" : "password"} id="password"

@@ -111,8 +111,10 @@ html, body, #root {
 
 .form-group { margin-bottom: 20px; }
 .form-group label {
-  display: block; font-size: 0.82rem; font-weight: 500;
-  color: var(--text); margin-bottom: 7px;
+  display: block; font-size: 0.82rem; font-weight: 600;
+  color: var(--muted); margin-bottom: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .form-group input[type='email'],
 .form-group input[type='password'],
@@ -127,6 +129,35 @@ html, body, #root {
 .form-group input:focus {
   border-color: var(--green-mid);
   box-shadow: 0 0 0 3px rgba(30,110,56,0.1);
+}
+
+.email-input-group {
+  display: flex;
+  align-items: stretch;
+}
+.email-input-group input[type='text'] {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+  flex: 1;
+}
+.email-input-group input[type='text']:focus {
+  border-right: 1px solid var(--green-mid);
+  z-index: 1;
+}
+.domain-suffix {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-left: none;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-family: 'DM Sans', sans-serif;
+  white-space: nowrap;
 }
 
 .password-wrapper {

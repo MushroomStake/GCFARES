@@ -13,14 +13,14 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
       <div className="cycle-card">
         <div className="cycle-header">
           <div>
-            <div className="cycle-label">No Active Cycle</div>
-            <div className="cycle-title">Create your first evaluation cycle</div>
+            <div className="cycle-label">No Active Period</div>
+            <div className="cycle-title">Create your first evaluation period</div>
           </div>
           <span className="badge badge-inactive">Not Started</span>
         </div>
         <div className="cycle-footer">
           <div className="btn-group">
-            <button className="btn btn-edit" onClick={onEdit}>Create Cycle</button>
+            <button className="btn btn-edit" onClick={onEdit}>Create Period</button>
           </div>
         </div>
       </div>
@@ -111,7 +111,7 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
       return (
         <>
           <button className="btn btn-edit" onClick={onEdit}>Edit</button>
-          <button className="btn btn-outline-success" onClick={() => onCycleAction('open')}>Open Cycle</button>
+          <button className="btn btn-outline-success" onClick={() => onCycleAction('open')}>Open Period</button>
         </>
       );
     } else {
@@ -119,7 +119,7 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
       return (
         <>
           <button className="btn btn-edit" onClick={onEdit}>Edit</button>
-          <button className="btn btn-outline-success" onClick={() => onCycleAction('open')}>Open Cycle</button>
+          <button className="btn btn-outline-success" onClick={() => onCycleAction('open')}>Open Period</button>
         </>
       );
     }
@@ -132,7 +132,7 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
     <div className="cycle-card">
       <div className="cycle-header">
         <div>
-          <div className="cycle-label">Current Cycle</div>
+          <div className="cycle-label">Current Period</div>
           <div className="cycle-title">{cycle.title}</div>
           <div className="cycle-meta">
             Started: {formatDate(cycle.start_date)}<br />
@@ -440,8 +440,8 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
       <div className="modal">
         <div className="modal-header">
           <div className="modal-title-wrap">
-            <div className="modal-kicker">Ranking Cycle Builder</div>
-            <h3>{cycle?.cycle_id ? 'Edit Cycle' : 'Create New Cycle'}</h3>
+            <div className="modal-kicker">Ranking Period Builder</div>
+            <h3>{cycle?.cycle_id ? 'Edit Period' : 'Create New Period'}</h3>
             <div className="modal-subtitle">
               Configure the semester cycle, lock/unlock faculty profile editing, and set the exact time window for submissions.
             </div>
@@ -451,7 +451,7 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
 
         <div className="modal-body">
           <div className="summary-banner" style={{ marginBottom: '16px' }}>
-            <strong>Tip:</strong> <b>Cycle Status</b> controls whether the cycle is active or closed. <b>Profile Access</b> controls whether faculty may edit their profile, and admin lock always wins.
+            <strong>Tip:</strong> <b>Period Status</b> controls whether the period is active or closed. <b>Profile Access</b> controls whether faculty may edit their profile, and admin lock always wins.
           </div>
 
           <div className="modal-panel">
@@ -476,7 +476,7 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
 
               <div className="modal-grid">
                 <div className="modal-field">
-                  <label>Cycle Title</label>
+                  <label>Period Title</label>
                   <input
                     type="text"
                     value={form.title}
@@ -485,7 +485,7 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
                   />
                 </div>
                 <div className="modal-field">
-                  <label>Cycle Status</label>
+                  <label>Period Status</label>
                   <select value={form.status} onChange={e => set('status', e.target.value)}>
                     <option value="open">Open</option>
                     <option value="submissions_closed">Submissions Closed</option>
@@ -543,7 +543,7 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
                     <option value="open">Open for faculty editing</option>
                     <option value="locked">Locked by admin</option>
                   </select>
-                  <small>Locked overrides the current cycle, even while the cycle itself is open.</small>
+                  <small>Locked overrides the current period, even while the period itself is open.</small>
                 </div>
                 <div className="modal-field">
                   <label>Access Result</label>
@@ -802,7 +802,7 @@ export default function Dashboard() {
           action,
           title: action === 'unlock-profile' ? 'Unlock Faculty Profile Editing?' : 'Lock Faculty Profile Editing?',
           message: action === 'unlock-profile'
-            ? 'Faculty will be able to edit their profile again, provided the current cycle window is still active.'
+            ? 'Faculty will be able to edit their profile again, provided the current period window is still active.'
             : 'Faculty profile editing will be disabled until you unlock it again.',
           confirmLabel: action === 'unlock-profile' ? 'Unlock Profile' : 'Lock Profile',
           confirmTone: action === 'unlock-profile' ? 'primary' : 'danger',
@@ -815,7 +815,7 @@ export default function Dashboard() {
           open: true,
           action,
           title: 'Close Submissions?',
-          message: 'This will stop faculty from submitting new files for the current cycle. It does not finish or publish the evaluation.',
+          message: 'This will stop faculty from submitting new files for the current period. It does not finish or publish the evaluation.',
           confirmLabel: 'Close Submissions',
           confirmTone: 'primary',
         });
@@ -979,15 +979,15 @@ export default function Dashboard() {
           <div className="history-card">
             <div className="history-header">
               <div>
-                <h3>Ranking Cycle History</h3>
-                <p>All previous evaluation cycles</p>
+                <h3>Ranking Period History</h3>
+                <p>All previous evaluation periods</p>
               </div>
-              <span className="history-count">{cycleHistory.length} Cycles</span>
+              <span className="history-count">{cycleHistory.length} Periods</span>
             </div>
             <div className="history-grid">
               {cycleHistory.length === 0 ? (
                 <p style={{ padding: '24px', color: '#6b7280', textAlign: 'center' }}>
-                  No previous cycles found.
+                  No previous periods found.
                 </p>
               ) : (
                 visibleHistory.map((cycle) => <HistoryItem key={cycle.cycle_id} cycle={cycle} />)

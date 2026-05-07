@@ -7,7 +7,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 1,
     areaCode: 'I',
-    areaName: 'EDUCATIONAL QUALIFICATIONS',
+    areaName: 'Educational Qualifications',
     maxPoints: 85,
     subAreas: [
       {
@@ -111,7 +111,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 2,
     areaCode: 'II',
-    areaName: 'RESEARCH AND PUBLICATIONS',
+    areaName: 'Research and Publications',
     maxPoints: 20,
     subAreas: [
       {
@@ -164,7 +164,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 3,
     areaCode: 'III',
-    areaName: 'TEACHING EXPERIENCE AND PROFESSIONAL SERVICES',
+    areaName: 'Teaching Experience and Professional Services',
     maxPoints: 20,
     subAreas: [
       {
@@ -217,7 +217,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 4,
     areaCode: 'IV',
-    areaName: 'PERFORMANCE EVALUATION',
+    areaName: 'Performance Evaluation',
     maxPoints: 10,
     subAreas: [
       {
@@ -243,7 +243,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 5,
     areaCode: 'V',
-    areaName: 'TRAINING AND SEMINARS',
+    areaName: 'Training and Seminars',
     maxPoints: 10,
     subAreas: [
       {
@@ -277,7 +277,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 6,
     areaCode: 'VI',
-    areaName: 'EXPERT SERVICES RENDERED',
+    areaName: 'Expert Services Rendered',
     maxPoints: 20,
     subAreas: [
       {
@@ -350,7 +350,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 7,
     areaCode: 'VII',
-    areaName: 'INVOLVEMENT IN PROFESSIONAL ORGANIZATIONS',
+    areaName: 'Involvement in Professional Organizations',
     maxPoints: 10,
     subAreas: [
       {
@@ -414,7 +414,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 8,
     areaCode: 'VIII',
-    areaName: 'AWARDS OF DISTINCTION RECEIVED IN RECOGNITION OF ACHIEVEMENTS',
+    areaName: 'Awards of Distinction Received in Recognition of Achievements',
     maxPoints: 10,
     subAreas: [
       {
@@ -457,7 +457,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 9,
     areaCode: 'IX',
-    areaName: 'COMMUNITY OUTREACH',
+    areaName: 'Community Outreach',
     maxPoints: 5,
     subAreas: [
       {
@@ -476,7 +476,7 @@ export const RANKING_RUBRICS = [
   {
     areaId: 10,
     areaCode: 'X',
-    areaName: 'PROFESSIONAL EXAMINATION (PRC, CSC AND TESDA)',
+    areaName: 'Professional Examination (PRC, CSC and TESDA)',
     maxPoints: 10,
     subAreas: [
       {

@@ -229,7 +229,7 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
 
     if (nextStatus === 'ranking') {
       if (!cycleIdForSync) {
-        throw new Error('No active/selected cycle found. Please select a cycle before applying for ranking.');
+        throw new Error('No active/selected period found. Please select a period before applying for ranking.');
       }
 
       const participantResp = await fetch(`http://localhost:5000/cycles/${cycleIdForSync}/participants`, {
@@ -926,7 +926,7 @@ export default function UserManagement() {
               </div>
               <div className="filter-wrap">
                 <select value={selectedCycleId} onChange={e => setSelectedCycleId(e.target.value)}>
-                  <option value="">Select Cycle</option>
+                  <option value="">Select Period</option>
                   {cycles.map((cycle) => (
                     <option key={cycle.cycle_id} value={String(cycle.cycle_id)}>
                       {cycleLabel(cycle)}

@@ -481,7 +481,7 @@ export default function AreaIVImportPanel({
     return (
       <div className="area-iv-card">
         <div className="area-iv-title">Area IV Student Evaluation Import</div>
-        <div className="area-iv-empty">Select an active cycle before importing student evaluation data.</div>
+        <div className="area-iv-empty">Select an active period before importing student evaluation data.</div>
       </div>
     );
   }
@@ -525,7 +525,7 @@ export default function AreaIVImportPanel({
               disabled={savingImport}
             />
           </label>
-          <div className="area-iv-cycle">Current cycle: {currentCycle?.semester || 'Cycle'} {currentCycle?.year || ''}</div>
+          <div className="area-iv-cycle">Current period: {currentCycle?.semester || 'Period'} {currentCycle?.year || ''}</div>
         </div>
       )}
 
@@ -651,7 +651,7 @@ export default function AreaIVImportPanel({
                       <tr key={`${row.cycle_id}-${row.normalized_name}-${row.source_row_number}`}>
                         <td>
                           <div className="area-iv-name">{row.employee_name}</div>
-                          <div className="area-iv-meta">{row.matchedApplication ? 'Matched to current cycle' : 'No application match yet'}</div>
+                          <div className="area-iv-meta">{row.matchedApplication ? 'Matched to current period' : 'No application match yet'}</div>
                         </td>
                         <td className="area-iv-rate">{row.total_average_rate}</td>
                       </tr>
