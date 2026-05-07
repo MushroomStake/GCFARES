@@ -217,11 +217,11 @@ const DashboardPage = () => {
         {/* Responsive Header: Stacks on mobile, inline on tablet+ */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
           <div>
-            <h3 className="text-base font-bold text-sidebar">Ranking Cycle History</h3>
-            <p className="text-xs text-slate-500">All cycles you have participated in or that are currently open</p>
+            <h3 className="text-base font-bold text-sidebar">Ranking Period History</h3>
+            <p className="text-xs text-slate-500">All periods you have participated in or that are currently open</p>
           </div>
           <div className="bg-primary/5 text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/10 self-start sm:self-auto">
-            {cycles.length} Cycles
+            {cycles.length} Periods
           </div>
         </div>
 
@@ -248,7 +248,7 @@ const DashboardPage = () => {
                 <div className="mb-4 sm:mb-6 flex justify-between items-start">
                   <div>
                     <span className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block ${cycle.isCurrent ? 'text-primary' : 'text-slate-400'}`}>
-                      {cycle.isCurrent ? 'Active Cycle' : 'Completed'}
+                      {cycle.isCurrent ? 'Active Period' : 'Completed'}
                     </span>
                     <h4 className="text-base sm:text-lg font-bold text-slate-800">{cycle.title}</h4>
                   </div>
@@ -309,7 +309,7 @@ const DashboardPage = () => {
 
           {cycles.length === 0 && !loading && (
              <div className="col-span-full p-8 text-center text-slate-500 text-sm border-2 border-dashed border-slate-200 rounded-2xl">
-               No ranking cycles found. Create one to get started.
+               No ranking period found. Create one to get started.
              </div>
           )}
         </div>
@@ -360,7 +360,7 @@ const DashboardPage = () => {
               </div>
               <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Publish Final Results?</h3>
               <p className="text-sm text-slate-500 text-center mb-6">
-                Are you sure you want to finalize the results for <strong>{cycleToSubmit.title}</strong>? Once published, this ranking cycle will be closed and results will be recorded in history.
+                Are you sure you want to finalize the results for <strong>{cycleToSubmit.title}</strong>? Once published, this ranking period will be closed and results will be recorded in history.
               </p>
               <div className="flex flex-col-reverse sm:flex-row gap-3">
                 <button 

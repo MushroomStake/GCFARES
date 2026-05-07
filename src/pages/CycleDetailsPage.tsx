@@ -99,7 +99,7 @@ const CycleDetailsPage = () => {
         let pendingCount = 0;
 
         const resolvedRankings: RankingEntry[] = (appsData || []).map((appData: any) => {
-          const score = Number(appData.final_score) || 0;
+          const score = Number(appData.hr_score) || 0;
           totalScore += score;
           
           const statusLower = (appData.status || '').toLowerCase();

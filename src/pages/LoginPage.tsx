@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient'; 
 
 const LoginPage = () => {
-  const [email, setEmail] = useState('');
+  // We now treat 'email' as just the username/prefix part
+  const [emailPrefix, setEmailPrefix] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,17 +15,15 @@ const LoginPage = () => {
     e.preventDefault();
     setError('');
 
-    // Domain restriction validation
-    if (!email.endsWith('@gordoncollege.edu.ph')) {
-      return setError('Please use your official college email.');
-    }
+    // Construct the full email address
+    const fullEmail = `${emailPrefix.trim()}@gordoncollege.edu.ph`;
 
     setLoading(true);
 
     try {
-      // 1. Authenticate user using Supabase Auth
+      // 1. Authenticate user using the concatenated full email
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
+        email: fullEmail,
         password,
       });
 
@@ -37,7 +36,6 @@ const LoginPage = () => {
       }
 
       // 2. Fetch user details from the 'users' table
-      // maybeSingle() returns data if exactly one row is found, or null if zero rows (without throwing an error)
       const { data: userData, error: dbError } = await supabase
         .from('users')
         .select('*')
@@ -80,7 +78,6 @@ const LoginPage = () => {
       </div>
 
       <form onSubmit={handleLogin} className="w-full space-y-6">
-        {/* Error Message Display */}
         {error && (
           <div className="text-[12px] font-medium text-red-500 bg-red-50 p-2 rounded text-center">
             {error}
@@ -88,15 +85,23 @@ const LoginPage = () => {
         )}
 
         <div>
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 px-1">Email Address</label>
-          <input 
-            type="email" 
-            placeholder="Enter your domain email address"
-            className="input-field w-full"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+          <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 px-1">
+            Email Address
+          </label>
+          {/* FIXED DOMAIN INPUT GROUP */}
+          <div className="flex group">
+            <input 
+              type="text" 
+              placeholder="Username"
+              className="input-field w-full rounded-r-none border-r-0 focus:ring-0"
+              value={emailPrefix}
+              onChange={(e) => setEmailPrefix(e.target.value)}
+              required
+            />
+            <span className="inline-flex items-center px-3 text-[12px] font-semibold text-slate-400 bg-slate-50 border border-slate-200 border-l-0 rounded-r-md select-none">
+              @gordoncollege.edu.ph
+            </span>
+          </div>
         </div>
 
         <div>

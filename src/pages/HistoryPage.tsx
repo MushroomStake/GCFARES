@@ -37,7 +37,7 @@ const HistoryPage = () => {
           { data: appsData, error: appsError }
         ] = await Promise.all([
           supabase.from('ranking_cycles').select('*'),
-          supabase.from('applications').select('cycle_id, final_score')
+          supabase.from('applications').select('cycle_id, hr_score')
         ]);
 
         if (cyclesError) throw cyclesError;
@@ -54,7 +54,7 @@ const HistoryPage = () => {
           const totalFaculty = cycleApps.length;
           
           const totalPoints = cycleApps.reduce((sum, app) => {
-            const score = Number(app.final_score) || 0;
+            const score = Number(app.hr_score) || 0;
             return sum + score;
           }, 0);
           
@@ -118,7 +118,7 @@ const HistoryPage = () => {
       if (appsError) throw appsError;
 
       if (!apps || apps.length === 0) {
-        alert("No applications found for this cycle to export.");
+        alert("No applications found for this period to export.");
         setExportingId(null);
         return;
       }
@@ -222,7 +222,7 @@ const HistoryPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-sidebar">Ranking History</h2>
-          <p className="text-xs text-slate-500">Archive of all past and current ranking cycles</p>
+          <p className="text-xs text-slate-500">Archive of all past and current ranking period</p>
         </div>
         
         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -265,7 +265,7 @@ const HistoryPage = () => {
         {filteredCycles.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <Calendar className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-            <p className="text-slate-500 font-bold">No ranking cycles found.</p>
+            <p className="text-slate-500 font-bold">No ranking periods found.</p>
             <p className="text-sm text-slate-400">Try adjusting your search terms.</p>
           </div>
         ) : (
