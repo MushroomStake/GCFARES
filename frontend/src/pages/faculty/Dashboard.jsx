@@ -179,7 +179,7 @@ const styles = `
 
 const PAGE_TITLES = {
     home: "Dashboard",
-    history: "History & Logs",
+    history: "Ranking History",
     profile: "My Profile",
     notifications: "Notifications",
 };

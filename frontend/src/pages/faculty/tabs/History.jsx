@@ -70,40 +70,6 @@ const css = `
     font-size: 9px; font-weight: 700; letter-spacing: 0.8px;
     padding: 2px 8px; border-radius: 8px; text-transform: uppercase;
   }
-
-  /* Log table */
-  .log-wrap { overflow-x: auto; margin-top: 14px; }
-  .log-tbl {
-    width: 100%; border-collapse: collapse;
-    font-family: 'Source Sans 3', sans-serif;
-  }
-  .log-tbl th {
-    font-size: 10.5px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.8px; color: #6b7c70; text-align: left;
-    padding: 8px 12px; border-bottom: 2px solid #dde5df;
-    background: #f8f7f4; white-space: nowrap;
-  }
-  .log-tbl th:first-child { border-radius: 8px 0 0 0; }
-  .log-tbl th:last-child  { border-radius: 0 8px 0 0; }
-  .log-tbl td {
-    font-size: 12.5px; color: #3a4a3e;
-    padding: 10px 12px; border-bottom: 1px solid #f0f3f1;
-    white-space: nowrap;
-  }
-  .log-tbl tr:last-child td { border-bottom: none; }
-  .log-tbl tr:hover td { background: #eef7f2; }
-
-  .la {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 2px 9px; border-radius: 8px; font-size: 11px; font-weight: 600;
-    white-space: nowrap;
-  }
-  .la-submit  { background: #eafaf1; color: #1e8449; }
-  .la-draft   { background: #fdf8ec; color: #7d5a10; }
-  .la-review  { background: #eaf3fb; color: #2471a3; }
-  .la-publish { background: #eef7f2; color: #1a6b3c; }
-  .la-upload  { background: #f0eafa; color: #6c3483; }
-  .la-replace { background: #eaf4fb; color: #1a5276; }
 `;
 
 // Intentionally no mock rows here so History only shows live data.
@@ -112,30 +78,6 @@ const css = `
 const CYCLE_TABLE_CANDIDATES = (
     import.meta.env.VITE_SUPABASE_CYCLE_TABLE_CANDIDATES ||
     "ranking_cycles,rankingcycles,cycles"
-)
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-const APPLICATION_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_APPLICATION_TABLE_CANDIDATES ||
-    "applications,ranking_applications,faculty_applications"
-)
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-const APPLICATION_LOG_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_APPLICATION_LOG_TABLE_CANDIDATES ||
-    ""  // Skip application_logs queries - table schema incompatible
-)
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-const USER_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_USER_TABLE_CANDIDATES ||
-    "users,profiles,faculty_profiles"
 )
     .split(",")
     .map((value) => value.trim())
@@ -152,38 +94,6 @@ function getFirstValue(source, keys, fallback = null) {
     return fallback;
 }
 
-function isColumnOrTableError(error) {
-    const message = String(error?.message || "").toLowerCase();
-    return (
-        message.includes("does not exist") ||
-        message.includes("column") ||
-        message.includes("relation")
-    );
-}
-
-function toTitleCase(value) {
-    const text = String(value || "").trim();
-    if (!text) return "Updated";
-    return text
-        .replace(/[_-]/g, " ")
-        .split(/\s+/)
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-        .join(" ");
-}
-
-function formatDateTime(value) {
-    if (!value) return "Unknown date";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "Unknown date";
-    return date.toLocaleString("en-PH", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-    });
-}
-
 function formatShortDate(value, fallback = "Unknown") {
     if (!value) return fallback;
     const date = new Date(value);
@@ -193,20 +103,6 @@ function formatShortDate(value, fallback = "Unknown") {
         day: "numeric",
         year: "numeric",
     });
-}
-
-function parseTimestamp(row) {
-    const raw = getFirstValue(row, [
-        "changed_at",
-        "updated_at",
-        "created_at",
-        "timestamp",
-        "published_at",
-        "submitted_at",
-    ]);
-    if (!raw) return 0;
-    const time = new Date(raw).getTime();
-    return Number.isFinite(time) ? time : 0;
 }
 
 async function queryRowsFromTableCandidates(tableCandidates, limit = 80) {
@@ -228,72 +124,6 @@ async function queryRowsFromTableCandidates(tableCandidates, limit = 80) {
     }
 
     return { table: null, rows: [] };
-}
-
-function buildUserFilterCandidates(user) {
-    return [
-        ["user_id", user?.user_id],
-        ["faculty_id", user?.user_id],
-        ["uid", user?.user_id],
-        ["email", user?.email],
-        ["user_email", user?.email],
-        ["domain_email", user?.email],
-    ].filter(([, value]) => Boolean(value));
-}
-
-async function queryRowsByUser(tableCandidates, user, limit = 120) {
-    const candidates = buildUserFilterCandidates(user);
-    if (candidates.length === 0) {
-        return { table: null, rows: [] };
-    }
-
-    for (const table of tableCandidates) {
-        for (const [column, value] of candidates) {
-            const result = await supabase
-                .from(table)
-                .select("*")
-                .eq(column, value)
-                .limit(limit);
-
-            if (!result.error && Array.isArray(result.data)) {
-                return { table, rows: result.data };
-            }
-
-            // If column doesn't exist, continue to next candidate
-            if (isColumnOrTableError(result.error)) {
-                continue;
-            }
-        }
-    }
-
-    return { table: null, rows: [] };
-}
-
-async function querySingleByUser(tableCandidates, user) {
-    const candidates = buildUserFilterCandidates(user);
-    if (candidates.length === 0) {
-        return { table: null, row: null };
-    }
-
-    for (const table of tableCandidates) {
-        for (const [column, value] of candidates) {
-            const result = await supabase
-                .from(table)
-                .select("*")
-                .eq(column, value)
-                .maybeSingle();
-
-            if (!result.error) {
-                return { table, row: result.data || null };
-            }
-
-            if (!isColumnOrTableError(result.error)) {
-                continue;
-            }
-        }
-    }
-
-    return { table: null, row: null };
 }
 
 function mapStatusToCard(statusText, isOpen) {
@@ -349,73 +179,6 @@ function toPeriodCards(periodRows) {
     });
 }
 
-function mapActionClass(actionText) {
-    const action = String(actionText || "").toLowerCase();
-    if (action.includes("publish") || action.includes("approve")) return "la-publish";
-    if (action.includes("review") || action.includes("score")) return "la-review";
-    if (action.includes("upload")) return "la-upload";
-    if (action.includes("replace") || action.includes("update")) return "la-replace";
-    if (action.includes("draft") || action.includes("save")) return "la-draft";
-    return "la-submit";
-}
-
-function mapActionLabel(actionText) {
-    const raw = String(actionText || "").trim();
-    if (!raw) return "Submitted";
-    return toTitleCase(raw);
-}
-
-function toLogRows(logRows, cycleRows, fallbackBy) {
-    if (!Array.isArray(logRows) || logRows.length === 0) {
-        return [];
-    }
-
-    const cycleMap = new Map(
-        (periodRows || []).map((period) => [
-            String(getFirstValue(period, ["cycle_id", "id"], "")),
-            String(getFirstValue(period, ["title", "cycle", "cycle_name", "name"], "Unknown period")),
-        ]),
-    );
-
-    return [...logRows]
-        .sort((a, b) => parseTimestamp(b) - parseTimestamp(a))
-        .slice(0, 100)
-        .map((row, index) => {
-            const action = mapActionLabel(
-                getFirstValue(row, ["action", "new_status", "status", "event"], "Submitted"),
-            );
-            const cycleId = getFirstValue(row, ["cycle_id", "ranking_cycle_id", "cycleId"]);
-            const cycleLabel = cycleId
-                ? cycleMap.get(String(cycleId))
-                : getFirstValue(row, ["cycle_label", "cycle_name"], "Unknown period");
-
-            const areaId = getFirstValue(row, ["area_id"], null);
-            const partId = getFirstValue(row, ["part_id", "subpart_id"], null);
-            const detail = getFirstValue(row, ["comment", "description", "details", "file_name"], null);
-            const areaDescription = detail
-                ? String(detail)
-                : areaId && partId
-                    ? `Area ${areaId} - ${partId}`
-                    : areaId
-                        ? `Area ${areaId}`
-                        : "Application update";
-
-            return {
-                id: getFirstValue(row, ["log_id", "id"], `log-${index}`),
-                datetime: formatDateTime(
-                    getFirstValue(row, ["changed_at", "created_at", "updated_at", "timestamp"], null),
-                ),
-                cycle: String(cycleLabel || "Unknown period"),
-                action,
-                actionClass: mapActionClass(action),
-                area: areaDescription,
-                by: String(
-                    getFirstValue(row, ["changed_by_name", "changed_by", "updated_by", "actor"], fallbackBy || "System"),
-                ),
-            };
-        });
-}
-
 // â”€â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PeriodCard({ period }) {
     const badgeClass = {
@@ -441,7 +204,7 @@ function PeriodCard({ period }) {
 }
 
 // â”€â”€â”€ Main Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export default function History({ user, cycles, logs }) {
+export default function History({ cycles }) {
     const [periodData, setPeriodData] = useState(cycles || []);
     const [isLoading, setIsLoading] = useState(!cycles);
 
@@ -476,7 +239,7 @@ export default function History({ user, cycles, logs }) {
         return () => {
             isActive = false;
         };
-    }, [cycles, logs, user]);
+    }, [cycles]);
 
     return (
         <>

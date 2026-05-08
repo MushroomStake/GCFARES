@@ -1917,8 +1917,9 @@ const styles = `
   .hm-ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
   .hm-ring-days{font-size:20px;font-weight:700;color:var(--white);line-height:1;}
   .hm-ring-days-label{font-size:8px;color:rgba(255,255,255,0.55);letter-spacing:1px;text-transform:uppercase;margin-top:2px;}
+  .hm-deadline-copy{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;}
   .hm-deadline-label{font-size:10px;color:rgba(255,255,255,0.6);}
-  .hm-deadline-date{font-size:12px;font-weight:600;color:var(--gc-gold-light);margin-top:2px;}
+  .hm-deadline-date{font-size:12px;font-weight:600;color:var(--gc-gold-light);}
   /* RANK SUMMARY */
   .hm-rank-summary{background:var(--white);border-radius:12px;border:1px solid var(--border);padding:16px 20px;margin-bottom:16px;display:flex;align-items:stretch;box-shadow:0 2px 6px rgba(0,0,0,0.04);overflow:hidden;animation:hmFU .5s .15s ease both;}
   .hm-rs-item{flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 20px;gap:4px;}
@@ -2018,14 +2019,19 @@ const styles = `
     .hm-rank-summary{flex-wrap:wrap;}.hm-rs-divider{display:none;}.hm-rs-item{padding:0;flex:1 1 calc(50% - 12px);}
   }
   @media(max-width:640px){
-    .hm-hero{flex-direction:column;align-items:flex-start;padding:20px;}
-    .hm-hero-right{align-self:stretch;display:flex;align-items:center;gap:16px;}
-    .hm-deadline-ring{width:72px;height:72px;margin:0;}.hm-deadline-ring svg{width:72px;height:72px;}
+    .hm-hero{padding:20px;}
     .hm-ring-days{font-size:16px;}.hm-name{font-size:17px;}.hm-rank-flow{gap:5px;}.hm-rank-chip{font-size:11px;padding:2px 8px;}
     .hm-rs-item{flex:1 1 100%;}
     .hm-detail-header{flex-direction:column;align-items:flex-start;gap:8px;}.hm-dh-right{text-align:left;}
     .hm-pc-controls{flex-direction:column;align-items:stretch;}
     .hm-btn-template,.hm-btn-attach,.hm-btn-replace,.hm-btn-submit{justify-content:center;}
+  }
+  @media(max-width:411.98px){
+    .hm-hero{flex-direction:column;align-items:flex-start;}
+    .hm-hero-right{align-self:stretch;display:flex;align-items:center;gap:16px;text-align:left;}
+    .hm-deadline-ring{width:72px;height:72px;margin:0;}.hm-deadline-ring svg{width:72px;height:72px;}
+    .hm-deadline-copy{align-items:flex-start;text-align:left;gap:3px;}
+    .hm-deadline-label,.hm-deadline-date{line-height:1.15;}
   }
   /* ── GROUP HEADER (isGroup parts — Area II) ── */
   .hm-part-group{border:1.5px solid #dde5df;border-radius:14px;overflow:hidden;margin-bottom:0;}
@@ -3859,11 +3865,13 @@ export default function Home({ user }) {
                                     </span>
                                 </div>
                             </div>
-                            <div className="hm-deadline-label">
-                                Submission Deadline
-                            </div>
-                            <div className="hm-deadline-date">
-                                {periodInfo.deadlineLabel}
+                            <div className="hm-deadline-copy">
+                                <div className="hm-deadline-label">
+                                    Submission Deadline
+                                </div>
+                                <div className="hm-deadline-date">
+                                    {periodInfo.deadlineLabel}
+                                </div>
                             </div>
                         </>
                     ) : (
@@ -3888,12 +3896,14 @@ export default function Home({ user }) {
                                     />
                                 </div>
                             </div>
-                            <div className="hm-deadline-label">Submissions</div>
-                            <div
-                                className="hm-deadline-date"
-                                style={{ color: "rgba(255,255,255,0.6)" }}
-                            >
-                                Closed
+                            <div className="hm-deadline-copy">
+                                <div className="hm-deadline-label">Submissions</div>
+                                <div
+                                    className="hm-deadline-date"
+                                    style={{ color: "rgba(255,255,255,0.6)" }}
+                                >
+                                    Closed
+                                </div>
                             </div>
                         </>
                     )}

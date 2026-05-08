@@ -30,9 +30,7 @@ import {
     Pencil,
     X,
     Plus,
-    Camera,
     AlertCircle,
-    Upload,
     Shield,
 } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
@@ -75,9 +73,9 @@ const styles = `
     background:rgba(201,168,76,0.09); pointer-events:none;
   }
 
-  /* Avatar with camera overlay */
+  /* Static profile avatar */
   .pf-avatar-wrap {
-    position:relative; flex-shrink:0; cursor:pointer;
+    position:relative; flex-shrink:0;
   }
   .pf-hero-avatar {
     width:80px; height:80px; border-radius:50%;
@@ -85,16 +83,6 @@ const styles = `
     display:flex; align-items:center; justify-content:center;
     color:rgba(255,255,255,0.9); overflow:hidden;
   }
-  .pf-hero-avatar img { width:100%; height:100%; object-fit:cover; }
-  .pf-avatar-overlay {
-    position:absolute; inset:0; border-radius:50%;
-    background:rgba(0,0,0,0.45);
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
-    opacity:0; transition:opacity 0.2s; color:var(--white);
-  }
-  .pf-avatar-wrap:hover .pf-avatar-overlay { opacity:1; }
-  .pf-avatar-label { font-size:9px; font-weight:700; letter-spacing:0.5px; line-height:1; }
-
   .pf-hero-info { flex:1; min-width:0; position:relative; z-index:1; }
   .pf-hero-tag  {
     font-size:10.5px; color:var(--gc-gold-light); letter-spacing:1.5px;
@@ -483,8 +471,6 @@ const styles = `
 // Default fallback used until ranking cycle data is hydrated from Supabase.
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_PROFILE_EDIT_OPEN = false;
-const PROFILE_PICTURE_BUCKET =
-    import.meta.env.VITE_SUPABASE_PROFILE_PICTURE_BUCKET || "profile-pictures";
 const USER_TABLE_CANDIDATES = (
     import.meta.env.VITE_SUPABASE_USER_TABLE_CANDIDATES ||
     "users"
@@ -694,13 +680,6 @@ function parseArrayOrLines(value) {
         }
     }
     return [];
-}
-
-function sanitizeFileName(fileName) {
-    return String(fileName || "image")
-        .replace(/\s+/g, "_")
-        .replace(/[^a-zA-Z0-9._-]/g, "")
-        .slice(0, 120);
 }
 
 async function queryPlainRowsWithTableFromCandidates(candidates, limit = 300) {
@@ -1417,7 +1396,6 @@ export default function Profile({ user }) {
     const [profileEditWindowResolved, setProfileEditWindowResolved] = useState(false);
     const [profileEditWindowLabel, setProfileEditWindowLabel] = useState("");
     const [activeCycleRow, setActiveCycleRow] = useState(null);
-    const [profilePicture, setProfilePicture] = useState(user?.profile_picture || user?.avatar_url || "");
     const [memberSince, setMemberSince] = useState(formatShortDate(user?.created_at, ""));
     const [lastName, setLastName] = useState(getFirstValue(user, PROFILE_LAST_NAME_KEYS, ""));
     const [firstName, setFirstName] = useState(getFirstValue(user, PROFILE_FIRST_NAME_KEYS, ""));
@@ -1526,8 +1504,6 @@ export default function Profile({ user }) {
         applyText(user?.nature_of_appointment ?? user?.appointment_type, setNatureOfAppointment);
         applyText(user?.teaching_experience_years ?? user?.teaching_years ?? user?.years_teaching, setTeachingYears);
         applyText(user?.industry_experience_years ?? user?.industry_years ?? user?.years_industry, setIndustryYears);
-        applyText(user?.profile_picture ?? user?.avatar_url, setProfilePicture);
-
         if (user?.date_of_last_promotion || user?.last_promotion_date) {
             setLastPromotionDate(
                 formatShortDate(user?.date_of_last_promotion ?? user?.last_promotion_date, ""),
@@ -1626,7 +1602,6 @@ export default function Profile({ user }) {
                 );
                 setTeachingYears(String(getFirstValue(userRow, ["teaching_experience_years", "teaching_years", "years_teaching"], "")));
                 setIndustryYears(String(getFirstValue(userRow, ["industry_experience_years", "industry_years", "years_industry"], "")));
-                setProfilePicture(String(getFirstValue(userRow, ["profile_picture", "avatar_url", "photo_url"], "")));
                 setMemberSince(
                     formatShortDate(
                         getFirstValue(userRow, ["created_at", "member_since", "date_created"]),
@@ -1719,52 +1694,6 @@ export default function Profile({ user }) {
         applyProfileFieldLocally(field, value);
         await refreshProfile();
         pushToast("success", "Profile updated successfully.");
-    };
-
-    const handleAvatarChange = () => {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = "image/png,image/jpeg,image/jpg,image/webp";
-        input.style.display = "none";
-        input.onchange = async (event) => {
-            const file = event.target?.files?.[0];
-            if (!file) return;
-
-            const userSegment = userId || userEmail || "anonymous";
-            const storagePath = `${userSegment}/${Date.now()}_${sanitizeFileName(file.name)}`;
-            const upload = await supabase.storage
-                .from(PROFILE_PICTURE_BUCKET)
-                .upload(storagePath, file, { upsert: true });
-            if (upload.error) {
-                pushToast("error", "Profile photo upload failed.");
-                return;
-            }
-
-            const signed = await supabase.storage
-                .from(PROFILE_PICTURE_BUCKET)
-                .createSignedUrl(storagePath, 3600);
-            const imageUrl = signed.data?.signedUrl || null;
-
-            const useNumeric = isNumericId(userId);
-            const userFilterColumn = useNumeric ? "user_id" : "domain_email";
-            const userFilterValue = useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId);
-            const { error } = await supabase
-                .from(USER_TABLE)
-                .update({ profile_picture: imageUrl })
-                .eq(userFilterColumn, userFilterValue);
-
-            if (error) {
-                pushToast("error", error.message || "Unable to save profile photo.");
-                return;
-            }
-
-            setProfilePicture(imageUrl || "");
-            await refreshProfile();
-            pushToast("success", "Profile photo updated successfully.");
-        };
-        document.body.appendChild(input);
-        input.click();
-        document.body.removeChild(input);
     };
 
     const handleAddEdu = async (eduData) => {
@@ -2064,22 +1993,10 @@ export default function Profile({ user }) {
 
             {/* ── HERO ── */}
             <div className="pf-hero">
-                {/* Profile picture — faculty can request change, requires HR approval */}
-                {/* Avatar click is only active when the profile edit window is open */}
-                <div
-                    className="pf-avatar-wrap"
-                    onClick={profileEditOpen ? handleAvatarChange : undefined}
-                    style={!profileEditOpen ? { cursor: "default" } : undefined}
-                >
+                {/* Static avatar icon */}
+                <div className="pf-avatar-wrap">
                     <div className="pf-hero-avatar">
-                        {profilePicture ? (
-                            <img src={profilePicture} alt="Profile" />
-                        ) : (
-                            <User size={34} />
-                        )}
-                    </div>
-                    <div className="pf-avatar-overlay">
-                        <Camera size={16} />
+                        <User size={34} />
                     </div>
                 </div>
 
