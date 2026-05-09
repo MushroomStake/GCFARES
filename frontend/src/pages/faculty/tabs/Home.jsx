@@ -3093,7 +3093,7 @@ export default function Home({ user }) {
         patchPartLocal(part.id, (prev) => ({
             ...prev,
             status: nextStatus,
-            file: cleanName,
+            file: file.name,
             date: nowText,
             fileUrl,
             storagePath,
