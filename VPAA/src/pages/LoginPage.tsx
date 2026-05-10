@@ -68,12 +68,13 @@ const LoginPage = () => {
 
   return (
     <div className="flex flex-col items-center">
-      <div className="mb-8 flex flex-col items-center">
-        <img src="/assets/gc-logo.png" alt="Gordon College Logo" className="w-20 h-20 mb-4" />
-        <h2 className="text-lg font-bold text-sidebar tracking-tight">GORDON COLLEGE</h2>
-        <p className="text-[10px] uppercase tracking-[0.2em] text-sidebar/60 font-bold mb-8">VPAA RANKING PORTAL</p>
-        
-        <h3 className="text-2xl font-semibold text-slate-800 mb-2">Sign In</h3>
+      <div className="mb-8 flex flex-col items-center text-center">
+        <div className="w-20 h-20 rounded-full bg-white shadow-lg shadow-slate-200/60 flex items-center justify-center mb-4 border border-slate-100 overflow-hidden">
+          <img src="/assets/gc-logo.png" alt="Gordon College Logo" className="w-16 h-16 object-contain" />
+        </div>
+        <h2 className="text-lg font-bold text-sidebar tracking-tight font-display">GORDON COLLEGE</h2>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-sidebar/60 font-bold mb-8">VPAA PORTAL</p>
+        <h3 className="text-2xl font-semibold text-slate-800 mb-2 font-display">Sign In</h3>
         <p className="text-slate-500 text-sm">To access the portal</p>
       </div>
 

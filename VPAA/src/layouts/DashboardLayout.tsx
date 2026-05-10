@@ -30,10 +30,6 @@ const DashboardLayout = () => {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  // User Profile States
-  const [userName, setUserName] = useState("Loading...");
-  const [userInitials, setUserInitials] = useState("");
-
   // Notification States
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -54,37 +50,6 @@ const DashboardLayout = () => {
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
-
-  // Fetch Logged-in User Profile
-  useEffect(() => {
-    const fetchUserProfile = async () => {
-      try {
-        const { data: authData, error: authError } = await supabase.auth.getUser();
-        if (authError || !authData?.user) return;
-
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('name_first, name_last')
-          .eq('domain_email', authData.user.email) 
-          .single();
-
-        if (userError) throw userError;
-
-        if (userData) {
-          const first = userData.name_first || '';
-          const last = userData.name_last || '';
-          setUserName(`Dr. ${first} ${last}`.trim());
-          setUserInitials(`${first.charAt(0)}${last.charAt(0)}`.toUpperCase());
-        }
-      } catch (error) {
-        console.error("Error fetching user profile:", error);
-        setUserName("VPAA User");
-        setUserInitials("VP");
-      }
-    };
-
-    fetchUserProfile();
-  }, []);
 
   // Fetch and subscribe to notifications
   useEffect(() => {
@@ -182,7 +147,7 @@ const DashboardLayout = () => {
   ];
 
   return (
-    <div className="flex h-screen bg-[#f3f4f6] overflow-hidden">
+    <div className="flex h-screen bg-surface overflow-hidden text-text-dark">
       
       {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
@@ -199,17 +164,19 @@ const DashboardLayout = () => {
         md:relative md:translate-x-0
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="p-6 md:p-8 flex flex-col items-center border-b border-white/10 relative">
+        <div className="p-6 md:p-8 flex flex-col items-center border-b border-white/10 relative bg-gradient-to-b from-white/5 to-transparent">
           {/* Close Menu Button (Mobile Only) */}
           <button 
             onClick={() => setIsMobileMenuOpen(false)}
+            aria-label="Close sidebar menu"
+            title="Close sidebar menu"
             className="absolute top-4 right-4 p-2 text-white/50 hover:text-white md:hidden rounded-lg hover:bg-white/10"
           >
             <X size={20} />
           </button>
 
           <img src="/assets/gc-logo.png" alt="Logo" className="w-12 h-12 md:w-16 md:h-16 mb-4" />
-          <h1 className="text-sm font-bold tracking-tight text-center">Gordon College</h1>
+          <h1 className="text-sm font-bold tracking-tight text-center font-display">Gordon College</h1>
           <p className="text-[10px] uppercase tracking-widest text-white/50 font-bold">VPAA PORTAL</p>
         </div>
 
@@ -233,16 +200,6 @@ const DashboardLayout = () => {
         </nav>
 
         <div className="p-4 md:p-6 border-t border-white/10">
-          <div className="flex items-center gap-3 mb-6 px-2">
-            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-white/10 shrink-0">
-              <span className="font-bold text-primary-light text-sm">{userInitials || 'VP'}</span>
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-sm font-bold truncate" title={userName}>{userName}</p>
-              <p className="text-[10px] text-white/40 font-semibold uppercase">VPAA Director</p>
-            </div>
-          </div>
-          
           <button 
             onClick={() => setShowLogoutModal(true)} 
             className="flex items-center gap-3 px-4 py-3 w-full text-white/60 hover:text-white hover:bg-red-500/10 hover:text-red-400 rounded-lg transition-all text-sm font-semibold"
@@ -256,19 +213,21 @@ const DashboardLayout = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col w-full min-w-0">
     
-        <header className="h-16 bg-white border-b border-slate-200 px-4 md:px-8 flex items-center justify-between shadow-sm relative z-30">
+        <header className="h-16 bg-white border-b border-[#dde5df] px-4 md:px-8 flex items-center justify-between shadow-sm relative z-30">
           
           <div className="flex items-center gap-3">
             {/* Hamburger Menu Toggle (Mobile Only) */}
             <button 
               onClick={() => setIsMobileMenuOpen(true)}
+              aria-label="Open sidebar menu"
+              title="Open sidebar menu"
               className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg md:hidden"
             >
               <Menu size={24} />
             </button>
             
             <div>
-              <h2 className="text-base md:text-lg font-bold text-sidebar">{getPageTitle()}</h2>
+              <h2 className="text-base md:text-lg font-bold text-sidebar font-display">{getPageTitle()}</h2>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest hidden sm:block">VPAA Portal</p>
             </div>
           </div>
@@ -358,7 +317,7 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 relative">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 relative bg-surface">
           <Outlet />
         </main>
       </div>
