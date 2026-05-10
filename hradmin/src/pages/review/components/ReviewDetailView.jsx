@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export default function ReviewDetailView({
   FacultyInfoCard,
@@ -33,6 +34,7 @@ export default function ReviewDetailView({
   savingAreaScore,
   currentCycle,
   applications,
+  onAutoScoreComplete = null,
 }) {
   const [forceAreaIVModalOpen, setForceAreaIVModalOpen] = useState(false);
   const selectedAreaId = Number(selectedArea?.area?.area_id || selectedArea?.area_id || 0);
@@ -170,6 +172,46 @@ export default function ReviewDetailView({
           )}
         </div>
       </div>
+
+      {forceAreaIVModalOpen && typeof AreaIVImportPanel === 'function' && createPortal(
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '8px',
+            maxWidth: '90vw',
+            maxHeight: '90vh',
+            overflow: 'auto',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+          }}>
+            <AreaIVImportPanel
+              currentCycle={currentCycle}
+              applications={applications}
+              selectedApplication={selectedApplication}
+              selectedFaculty={selectedFaculty}
+              forceModalOpen={forceAreaIVModalOpen}
+              onModalClose={() => setForceAreaIVModalOpen(false)}
+              onAutoScoreComplete={(result) => {
+                setForceAreaIVModalOpen(false);
+                if (typeof onAutoScoreComplete === 'function') {
+                  onAutoScoreComplete(result);
+                }
+              }}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 }

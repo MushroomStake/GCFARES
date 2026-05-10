@@ -274,12 +274,12 @@ export function useReviewData() {
         };
       });
 
-      // Create placeholders for areas without submissions
-      const submittedAreaIds = new Set(submissions.map(s => Number(s.area_id)));
-      
-      const areasWithoutSubmissions = areas
-        .filter(area => !submittedAreaIds.has(Number(area.area_id)))
-        .map(area => ({
+      // Re-add empty areas so the review list displays all areas, not just submitted ones.
+      // These placeholders are display-only; scoring/upload logic still updates real rows in place.
+      const submittedAreaIds = new Set(submissions.map((sub) => Number(sub.area_id)));
+      const placeholderAreas = areas
+        .filter((area) => !submittedAreaIds.has(Number(area.area_id)))
+        .map((area) => ({
           id: `placeholder-${area.area_id}-${applicationId}`,
           submission_id: `placeholder-${area.area_id}-${applicationId}`,
           application_id: applicationId,
@@ -295,21 +295,27 @@ export function useReviewData() {
             area_name: area.area_name,
             max_possible_points: area.max_possible_points,
             template_file_path: area.template_file_path,
-            description: area.area_name
-          }
+            description: area.area_name,
+          },
         }));
 
-      // Deduplicate and sort by area (I-X)
-      const areaMap = new Map();
-      submissions.forEach(sub => {
+      const submissionsWithPlaceholders = [...submissions, ...placeholderAreas];
+
+      // Keep submissions distinct per area + part so files/scores do not collapse into a single row.
+      // This lets Area I part A/B/... remain separate from part K and prevents one submission from
+      // overwriting another when the same area has multiple files in the same cycle.
+      const submissionKey = (sub) => {
         const areaId = Number(sub.area_id);
-        areaMap.set(areaId, sub);
-      });
-      
-      areasWithoutSubmissions.forEach(placeholder => {
-        const areaId = Number(placeholder.area_id);
-        if (!areaMap.has(areaId)) {
-          areaMap.set(areaId, placeholder);
+        const partId = String(sub.part_id || '').trim().toLowerCase();
+        const fallbackId = String(sub.submission_id || sub.id || '').trim().toLowerCase();
+        return `${areaId}::${partId || fallbackId}`;
+      };
+
+      const areaMap = new Map();
+      submissionsWithPlaceholders.forEach(sub => {
+        const key = submissionKey(sub);
+        if (!areaMap.has(key)) {
+          areaMap.set(key, sub);
         }
       });
       
@@ -324,7 +330,12 @@ export function useReviewData() {
       dedupedSubmissions.sort((a, b) => {
         const aNum = extractRomanNum(a.area?.area_name);
         const bNum = extractRomanNum(b.area?.area_name);
-        return aNum - bNum;
+        if (aNum !== bNum) return aNum - bNum;
+
+        const aPart = String(a.part_id || '').localeCompare(String(b.part_id || ''), undefined, { numeric: true, sensitivity: 'base' });
+        if (aPart !== 0) return aPart;
+
+        return Number(b.uploaded_at ? new Date(b.uploaded_at).getTime() : 0) - Number(a.uploaded_at ? new Date(a.uploaded_at).getTime() : 0);
       });
 
       // Batch-fetch scoring details for non-placeholder submissions
@@ -410,6 +421,10 @@ export function useReviewData() {
     savingFinalScore,
 
     // Setters
+    setLoading,
+    setApplications,
+    setAreas,
+    setCurrentCycle,
     setView,
     setSearchTerm,
     setDepartmentFilter,

@@ -958,16 +958,67 @@ app.get("/review/submission-scoring/:submissionId", async (req, res) => {
         .maybeSingle();
     };
 
+    const findBestScoredSubmission = async (submission) => {
+      if (!submission?.application_id || !submission?.area_id) return submission;
+
+      const candidateQuery = supabase
+        .from("area_submissions")
+        .select("submission_id, application_id, area_id, file_path, uploaded_at, user_id, cycle_id, part_id, hr_points")
+        .eq("application_id", submission.application_id)
+        .eq("area_id", submission.area_id)
+        .order("uploaded_at", { ascending: false });
+
+      if (submission.cycle_id != null) {
+        candidateQuery.eq("cycle_id", submission.cycle_id);
+      }
+
+      if (submission.part_id != null) {
+        candidateQuery.eq("part_id", submission.part_id);
+      }
+
+      const { data: candidates, error: candidateError } = await candidateQuery;
+      if (candidateError || !Array.isArray(candidates) || candidates.length === 0) {
+        return submission;
+      }
+
+      for (const candidate of candidates) {
+        const { data: candidateScores, error: candidateScoresError } = await supabase
+          .from("area_submission_criterion_scores")
+          .select("score_id")
+          .eq("submission_id", candidate.submission_id);
+
+        if (!candidateScoresError && Array.isArray(candidateScores) && candidateScores.length > 0) {
+          if (String(candidate.submission_id) !== String(submission.submission_id)) {
+            console.log("[review/submission-scoring] fallback matched scored submission:", {
+              requestedSubmissionId: submissionId,
+              requestedSubmission: submission.submission_id,
+              matchedSubmission: candidate.submission_id,
+              application_id: candidate.application_id,
+              area_id: candidate.area_id,
+              cycle_id: candidate.cycle_id,
+              part_id: candidate.part_id,
+              scoreCount: candidateScores.length,
+            });
+          }
+          return candidate;
+        }
+      }
+
+      return submission;
+    };
+
     const { data: submission, error: submissionError } = await findSubmission();
 
     if (submissionError || !submission) {
-      return res.status(404).json({ error: "Submission not found" });
+      return res.status(400).json({ error: submissionError?.message || "Submission not found" });
     }
+
+    const scoringSubmission = await findBestScoredSubmission(submission);
 
     const { data: area, error: areaError } = await supabase
       .from("areas")
       .select("*")
-      .eq("area_id", submission.area_id)
+      .eq("area_id", scoringSubmission.area_id)
       .single();
 
     if (areaError || !area) {
@@ -977,23 +1028,23 @@ app.get("/review/submission-scoring/:submissionId", async (req, res) => {
     const { data: savedScores, error: savedScoresError } = await supabase
       .from("area_submission_criterion_scores")
       .select("*")
-      .eq("submission_id", submissionId)
+      .eq("submission_id", scoringSubmission.submission_id || scoringSubmission.id)
       .order("criterion_key", { ascending: true });
 
     if (savedScoresError) throw savedScoresError;
 
     const areaMaxPoints = Number(area.max_possible_points ?? area.maxPoints ?? area.max ?? 85);
-    const criteria = buildCriteriaScoreRows(getAreaCriteria(parseInt(submission.area_id, 10), area.area_name), savedScores || [], areaMaxPoints);
+    const criteria = buildCriteriaScoreRows(getAreaCriteria(parseInt(scoringSubmission.area_id, 10), area.area_name), savedScores || [], areaMaxPoints);
     const totalScore = criteria.reduce((sum, criterion) => sum + Number(criterion.score || 0), 0);
     const totalExcessScore = criteria.reduce((sum, criterion) => sum + Number(criterion.excessScore || 0), 0);
 
     res.json({
       area,
-      submission: submission || null,
+      submission: scoringSubmission || null,
       criteria,
       totalScore,
       totalExcessScore,
-      areaScore: submission?.hr_points || 0,
+      areaScore: scoringSubmission?.hr_points || 0,
     });
   } catch (err) {
     console.error("Error fetching submission scoring:", err);
@@ -1005,7 +1056,7 @@ app.get("/review/submission-scoring/:submissionId", async (req, res) => {
 // Update scores for a specific submission's criteria rows
 app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
   const { submissionId } = req.params;
-  const { criteria } = req.body;
+  const { criteria, context } = req.body;
 
   if (!submissionId) {
     return res.status(400).json({ error: "submissionId is required" });
@@ -1016,28 +1067,107 @@ app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
   }
 
   try {
-    const findSubmission = async () => {
-      const primary = await supabase
-        .from("area_submissions")
-        .select("*")
-        .eq("submission_id", submissionId)
-        .maybeSingle();
+    const resolveOrCreateSubmission = async () => {
+      const parsedSubmissionId = Number.parseInt(String(submissionId), 10);
+      const hasNumericId = Number.isFinite(parsedSubmissionId);
 
-      if (primary.data) {
-        return primary;
+      if (hasNumericId) {
+        const primary = await supabase
+          .from("area_submissions")
+          .select("*")
+          .eq("submission_id", parsedSubmissionId)
+          .maybeSingle();
+
+        if (primary.data) {
+          return primary;
+        }
+
+        const byLegacyId = await supabase
+          .from("area_submissions")
+          .select("*")
+          .eq("id", parsedSubmissionId)
+          .maybeSingle();
+
+        if (byLegacyId.data) {
+          return byLegacyId;
+        }
       }
 
-      return supabase
+      // Placeholder IDs and missing rows should still be persisted.
+      // Support ids like "placeholder-8-80" => area_id=8, application_id=80
+      const placeholderMatch = String(submissionId).match(/^placeholder-(\d+)-(\d+)$/i);
+      const derivedAreaId = placeholderMatch ? Number(placeholderMatch[1]) : null;
+      const derivedApplicationId = placeholderMatch ? Number(placeholderMatch[2]) : null;
+
+      const applicationId = Number(context?.application_id ?? derivedApplicationId);
+      const areaId = Number(context?.area_id ?? derivedAreaId);
+      const cycleId = context?.cycle_id != null ? Number(context.cycle_id) : null;
+      const userId = context?.user_id != null ? Number(context.user_id) : null;
+      const partId = context?.part_id != null ? String(context.part_id).trim() : null;
+
+      if (!Number.isFinite(applicationId) || !Number.isFinite(areaId)) {
+        return {
+          data: null,
+          error: {
+            message: "Missing context for placeholder scoring. Required: application_id and area_id",
+          },
+        };
+      }
+
+      // Try exact unique key first when fully available.
+      if (cycleId != null && userId != null && partId) {
+        const exact = await supabase
+          .from("area_submissions")
+          .select("*")
+          .match({
+            application_id: applicationId,
+            area_id: areaId,
+            cycle_id: cycleId,
+            user_id: userId,
+            part_id: partId,
+          })
+          .maybeSingle();
+        if (exact.data) return exact;
+      }
+
+      // Fallback: use application+area (+cycle, +part when provided)
+      let fallbackQuery = supabase
         .from("area_submissions")
         .select("*")
-        .eq("id", submissionId)
-        .maybeSingle();
+        .eq("application_id", applicationId)
+        .eq("area_id", areaId)
+        .order("uploaded_at", { ascending: false })
+        .limit(1);
+
+      if (cycleId != null) fallbackQuery = fallbackQuery.eq("cycle_id", cycleId);
+      if (partId) fallbackQuery = fallbackQuery.eq("part_id", partId);
+
+      const fallback = await fallbackQuery.maybeSingle();
+      if (fallback.data) return fallback;
+
+      const insertPayload = {
+        application_id: applicationId,
+        area_id: areaId,
+        cycle_id: cycleId,
+        user_id: userId,
+        part_id: partId,
+        file_path: null,
+        uploaded_at: new Date().toISOString(),
+      };
+
+      const inserted = await supabase
+        .from("area_submissions")
+        .insert(insertPayload)
+        .select("*")
+        .single();
+
+      return inserted;
     };
 
-    const { data: submission, error: submissionError } = await findSubmission();
+    const { data: submission, error: submissionError } = await resolveOrCreateSubmission();
 
     if (submissionError || !submission) {
-      return res.status(404).json({ error: "Submission not found" });
+      return res.status(400).json({ error: submissionError?.message || "Submission not found" });
     }
 
     const { data: area, error: areaError } = await supabase
@@ -1075,7 +1205,7 @@ app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
       const cappedScore = Math.min(scoreValue, maxPoints);
 
       return {
-        submission_id: Number(submissionId),
+        submission_id: Number(submission.submission_id ?? submission.id),
         application_id: Number(submission.application_id),
         area_id: Number(submission.area_id),
         part_id: submission.part_id,

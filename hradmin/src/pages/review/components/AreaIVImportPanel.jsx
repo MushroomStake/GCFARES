@@ -231,6 +231,7 @@ export default function AreaIVImportPanel({
   showUseButton = true,
   forceModalOpen = false,
   onModalClose = null,
+  onAutoScoreComplete = null,
 }) {
   const [importRows, setImportRows] = useState([]);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -450,7 +451,7 @@ export default function AreaIVImportPanel({
         // run async but do not block UI; log errors
         void (async () => {
           try {
-            await autoApplyScores(mappedRows);
+            await autoApplyScores(mappedRows, onAutoScoreComplete);
           } catch (autoErr) {
             // eslint-disable-next-line no-console
             console.warn('Auto-apply Area IV scores failed:', autoErr);
@@ -727,7 +728,7 @@ function findIvCriterionByAverage(avg) {
   return best || null;
 }
 
-async function autoApplyScores(mappedRows) {
+async function autoApplyScores(mappedRows, onAutoScoreComplete = null) {
   if (!Array.isArray(mappedRows) || mappedRows.length === 0) return;
   // Fetch data without nested selects to avoid REST API 400 errors
   const cycleId = mappedRows[0]?.cycle_id ?? null;
@@ -965,4 +966,13 @@ async function autoApplyScores(mappedRows) {
       }
     }
   } catch (e) {}
+
+  // Notify parent component to refetch data
+  if (typeof onAutoScoreComplete === 'function') {
+    try {
+      onAutoScoreComplete({ applied, matchedButNotScored, unmatched });
+    } catch (e) {
+      console.warn('Error calling onAutoScoreComplete:', e);
+    }
+  }
 }

@@ -532,6 +532,20 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
   const [areaIVDebouncedSearch, setAreaIVDebouncedSearch] = useState('');
   const skipAutoSaveRef = useRef(true);
   const lastSaveTimeRef = useRef(0);
+  const hasUnsavedUserEditsRef = useRef(false);
+  const latestDraftCriteriaRef = useRef(draftCriteriaScores);
+
+  const buildSaveContext = () => ({
+    application_id: submission?.application_id || selectedApplication?.id || null,
+    area_id: submission?.area_id || area?.area_id || null,
+    part_id: submission?.part_id || area?.part_id || null,
+    cycle_id: submission?.cycle_id || currentCycle?.cycle_id || currentCycle?.id || selectedApplication?.cycle_id || null,
+    user_id: submission?.user_id || selectedApplication?.faculty_id || selectedFaculty?.user_id || null,
+  });
+
+  useEffect(() => {
+    latestDraftCriteriaRef.current = draftCriteriaScores;
+  }, [draftCriteriaScores]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -551,7 +565,11 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
   // Fetch existing criterion scores from database
   useEffect(() => {
     const fetchCriterionScores = async () => {
+      const startedForSubmissionId = submission?.submission_id;
+
       if (!submission?.submission_id || String(submission?.submission_id)?.startsWith('placeholder-')) {
+        skipAutoSaveRef.current = true;
+        hasUnsavedUserEditsRef.current = false;
         setDraftCriteriaScores(activeCriteria);
         return;
       }
@@ -565,6 +583,9 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
 
         if (error) {
           console.warn('[ScoringCriteriaPanel] Error fetching criterion scores:', error);
+          if (String(submission?.submission_id) !== String(startedForSubmissionId)) return;
+          skipAutoSaveRef.current = true;
+          hasUnsavedUserEditsRef.current = false;
           setDraftCriteriaScores(activeCriteria);
           return;
         }
@@ -589,9 +610,15 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
           cappedScore: scoreMap[criterion.criterion_key]?.cappedScore ?? 0,
         }));
 
+        if (String(submission?.submission_id) !== String(startedForSubmissionId)) return;
+        skipAutoSaveRef.current = true;
+        hasUnsavedUserEditsRef.current = false;
         setDraftCriteriaScores(applyAreaMaxExcess(mergedCriteria));
       } catch (err) {
         console.error('[ScoringCriteriaPanel] Error fetching criterion scores:', err);
+        if (String(submission?.submission_id) !== String(startedForSubmissionId)) return;
+        skipAutoSaveRef.current = true;
+        hasUnsavedUserEditsRef.current = false;
         setDraftCriteriaScores(applyAreaMaxExcess(activeCriteria));
       }
     };
@@ -665,13 +692,12 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
       return undefined;
     }
 
-    // Do not autosave for placeholder submissions (local-only entries)
+    // Allow autosave for placeholders too: backend will create/resolve submission row.
     const sid = submission?.submission_id;
     if (!sid || !onSaveCriteriaScores) return undefined;
-    if (typeof sid === 'string' && sid.startsWith('placeholder-')) {
-      // skip autosave for placeholders
-      return undefined;
-    }
+
+    // Only autosave when the user actually changed something.
+    if (!hasUnsavedUserEditsRef.current) return undefined;
 
     // Prevent autosave within 1 second of last save to avoid rapid loops
     const now = Date.now();
@@ -681,11 +707,25 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
 
     const timer = window.setTimeout(() => {
       lastSaveTimeRef.current = Date.now();
-      onSaveCriteriaScores(submission.submission_id, draftCriteriaScores);
+      hasUnsavedUserEditsRef.current = false;
+      onSaveCriteriaScores(submission.submission_id, draftCriteriaScores, buildSaveContext());
     }, 350);
 
     return () => window.clearTimeout(timer);
   }, [draftCriteriaScores, submission?.submission_id, onSaveCriteriaScores]);
+
+  // If user switches area before debounce fires, persist pending edits immediately.
+  useEffect(() => {
+    const sidAtRender = submission?.submission_id;
+    return () => {
+      if (!sidAtRender || !onSaveCriteriaScores) return;
+      if (!hasUnsavedUserEditsRef.current) return;
+
+      lastSaveTimeRef.current = Date.now();
+      hasUnsavedUserEditsRef.current = false;
+      onSaveCriteriaScores(sidAtRender, latestDraftCriteriaRef.current, buildSaveContext());
+    };
+  }, [submission?.submission_id, onSaveCriteriaScores]);
 
   useEffect(() => {
     if (!areaIVModalOpen || area?.area_id !== 7) return;
@@ -777,6 +817,7 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
     // Coerce empty or invalid entries to 0 to avoid backend validation errors
     const parsed = (value === null || value === undefined || String(value).trim() === '') ? 0 : Number(value);
     const normalized = Number.isFinite(parsed) ? parsed : 0;
+    hasUnsavedUserEditsRef.current = true;
 
     setDraftCriteriaScores((prev) => {
       const updated = prev.map((criterion) => (

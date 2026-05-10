@@ -4,6 +4,17 @@ import { supabase } from '../../supabase';
 export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
   const pad2 = (value) => String(value).padStart(2, '0');
 
+  // Extract numeric year start from either format: "2026" or "2026-2027"
+  const extractYearStart = (yearValue) => {
+    if (!yearValue) return '';
+    if (typeof yearValue === 'number') return yearValue;
+    if (typeof yearValue === 'string') {
+      const match = yearValue.match(/^(\d{4})/);
+      return match ? parseInt(match[1], 10) : '';
+    }
+    return '';
+  };
+
   const toDateObject = (timestamp) => {
     if (!timestamp) return null;
     if (timestamp.toDate && typeof timestamp.toDate === 'function') {
@@ -44,8 +55,8 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
 
   const [form, setForm] = useState({
     title:       cycle?.title       || '',
-    yearStart:   cycle?.year        || '',
-    yearEnd:     cycle?.year ? cycle.year + 1 : '',
+    yearStart:   extractYearStart(cycle?.year),
+    yearEnd:     extractYearStart(cycle?.year) ? extractYearStart(cycle?.year) + 1 : '',
     semester:    cycle?.semester    || 'First Semester',
     start_date:  toDateInputValue(cycle?.start_date),
     start_time:  cycle?.start_date ? toTimeInputValue(cycle.start_date, getCurrentTimeInputValue()) : getCurrentTimeInputValue(),
@@ -70,11 +81,12 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
         
         if (error) throw error;
         if (data && data.length > 0) {
-          const lastYear = data[0].year;
+          const lastYear = extractYearStart(data[0].year);
+          const nextYear = lastYear ? lastYear + 1 : '';
           setForm(prev => ({
             ...prev,
             yearStart: lastYear,
-            yearEnd: lastYear + 1,
+            yearEnd: nextYear,
           }));
         }
       } catch (err) {
@@ -194,7 +206,7 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
 
     const cycleData = {
       title,
-      year: Number(form.yearStart),
+      year: `${Number(form.yearStart)}-${Number(form.yearStart) + 1}`,
       semester: form.semester,
       start_date: startTimestamp,
       deadline: deadlineTimestamp,

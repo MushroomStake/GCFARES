@@ -310,6 +310,17 @@ export default function Review() {
     }
   };
 
+  const handleAutoScoreComplete = async (result) => {
+    // Refetch area submissions after auto-scoring completes
+    if (reviewData.selectedApplication?.id) {
+      try {
+        await reviewData.fetchAreaSubmissions(reviewData.selectedApplication.id);
+      } catch (error) {
+        console.error('❌ Error refetching area submissions after auto-score:', error);
+      }
+    }
+  };
+
   const handleSelectArea = async (area) => {
     reviewData.setLoadingAreaDetails(true);
     try {
@@ -402,59 +413,26 @@ export default function Review() {
     reviewData.setAreaCriteria([]);
   };
 
-  const handleSaveCriteriaScores = async (submissionId, criteriaScores) => {
+  const handleSaveCriteriaScores = async (submissionId, criteriaScores, saveContext = null) => {
     if (!submissionId) {
       console.warn('No submission ID found for save');
       return;
     }
 
-    if (typeof submissionId === 'string' && submissionId.startsWith('placeholder-')) {
-      try {
-        reviewData.setSavingAreaScore(true);
-        const totalScore = (criteriaScores || []).reduce((sum, c) => sum + Number(c.score || 0), 0);
-
-        const updatedSubmissions = reviewData.areaSubmissions.map((sub) =>
-          sub.id === submissionId
-            ? { ...sub, hr_points: totalScore }
-            : sub
-        );
-        reviewData.setAreaSubmissions(updatedSubmissions);
-
-        reviewData.setSelectedArea((prev) => {
-          if (!prev) return prev;
-          const currentSubmissionId = prev.submission?.submission_id || prev.id;
-          if (String(currentSubmissionId) !== String(submissionId)) return prev;
-
-          return {
-            ...prev,
-            submission: { ...(prev.submission || {}), hr_points: totalScore },
-            criteria: criteriaScores,
-            totalScore,
-          };
-        });
-
-        reviewData.setAreaCriteria(criteriaScores);
-
-        const newTotalScore = updatedSubmissions.reduce((sum, submission) => sum + Number(submission.hr_points || 0), 0);
-        if (reviewData.selectedApplication?.id) {
-          const updatedApp = { ...reviewData.selectedApplication, hr_score: newTotalScore, display_score: reviewData.selectedApplication.final_score ?? newTotalScore };
-          reviewData.setSelectedApplication(updatedApp);
-          reviewData.setApplications((prev) => prev.map((app) => app.id === reviewData.selectedApplication.id ? updatedApp : app));
-        }
-      } catch (err) {
-        console.error('Error updating local placeholder score:', err);
-      } finally {
-        reviewData.setSavingAreaScore(false);
-      }
-      return;
-    }
-
     reviewData.setSavingAreaScore(true);
     try {
+      const scoringContext = saveContext || {
+        application_id: reviewData.selectedArea?.submission?.application_id || reviewData.selectedApplication?.id || null,
+        area_id: reviewData.selectedArea?.submission?.area_id || reviewData.selectedArea?.area_id || null,
+        part_id: reviewData.selectedArea?.submission?.part_id || reviewData.selectedArea?.part_id || null,
+        cycle_id: reviewData.selectedArea?.submission?.cycle_id || reviewData.selectedApplication?.cycle_id || reviewData.currentCycle?.cycle_id || null,
+        user_id: reviewData.selectedArea?.submission?.user_id || reviewData.selectedApplication?.faculty_id || reviewData.selectedFaculty?.user_id || null,
+      };
+
       const response = await fetch(`http://localhost:5000/review/submission-scoring/${submissionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ criteria: criteriaScores }),
+        body: JSON.stringify({ criteria: criteriaScores, context: scoringContext }),
       });
 
       if (!response.ok) {
@@ -463,10 +441,18 @@ export default function Review() {
       }
 
       const updatedSubmission = await response.json();
+      const returnedId = Number(updatedSubmission?.submission?.submission_id || updatedSubmission?.submission?.id || submissionId);
 
       const updatedSubmissions = reviewData.areaSubmissions.map((sub) =>
-        sub.id === Number(submissionId)
-          ? { ...sub, hr_points: updatedSubmission.totalScore ?? updatedSubmission.submission?.hr_points ?? sub.hr_points }
+        String(sub.id) === String(submissionId) || Number(sub.id) === returnedId
+          ? {
+              ...sub,
+              id: returnedId,
+              submission_id: returnedId,
+              is_placeholder: false,
+              ...(updatedSubmission.submission || {}),
+              hr_points: updatedSubmission.totalScore ?? updatedSubmission.submission?.hr_points ?? sub.hr_points,
+            }
           : sub
       );
       reviewData.setAreaSubmissions(updatedSubmissions);
@@ -474,7 +460,7 @@ export default function Review() {
       reviewData.setSelectedArea((prev) => {
         if (!prev) return prev;
         const currentSubmissionId = prev.submission?.submission_id || prev.id;
-        if (Number(currentSubmissionId) !== Number(submissionId)) return prev;
+        if (String(currentSubmissionId) !== String(submissionId) && Number(currentSubmissionId) !== returnedId) return prev;
 
         return {
           ...prev,
@@ -545,7 +531,25 @@ export default function Review() {
 
   // ─── FORMAT DATA ──────────────────────────────────────────
 
-  const submittedAreas = reviewData.areaSubmissions.map(submission => {
+  const rankSubmissionForDisplay = (submission) => {
+    const hasFile = submission?.file_path ? 1 : 0;
+    const hasPart = submission?.part_id ? 1 : 0;
+    const hasScore = Number(submission?.hr_points || 0) > 0 ? 1 : 0;
+    const uploadedTs = submission?.uploaded_at ? new Date(submission.uploaded_at).getTime() : 0;
+    const sid = Number(submission?.submission_id || submission?.id || 0);
+    return (hasFile * 1e15) + (hasPart * 1e14) + (hasScore * 1e13) + (uploadedTs * 1e3) + sid;
+  };
+
+  const uniqueSubmittedAreasMap = new Map();
+  reviewData.areaSubmissions.forEach((submission) => {
+    const areaId = Number(submission.area_id);
+    const existing = uniqueSubmittedAreasMap.get(areaId);
+    if (!existing || rankSubmissionForDisplay(submission) > rankSubmissionForDisplay(existing)) {
+      uniqueSubmittedAreasMap.set(areaId, submission);
+    }
+  });
+
+  const submittedAreas = Array.from(uniqueSubmittedAreasMap.values()).map(submission => {
     const cappedScore = Number(submission.capped_score || 0);
     const excessScore = Number(submission.excess_score || 0);
     const max = Number(submission.area.max_possible_points || 0);
@@ -667,6 +671,7 @@ export default function Review() {
               savingAreaScore={reviewData.savingAreaScore}
               currentCycle={reviewData.currentCycle}
               applications={reviewData.applications}
+              onAutoScoreComplete={handleAutoScoreComplete}
             />
           )}
 
