@@ -269,7 +269,8 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
 
   const [form, setForm] = useState({
     title:       cycle?.title       || '',
-    year:        cycle?.year        || new Date().getFullYear(),
+    yearStart:   cycle?.year        || '',
+    yearEnd:     cycle?.year ? cycle.year + 1 : '',
     semester:    cycle?.semester    || 'First Semester',
     start_date:  toDateInputValue(cycle?.start_date),
     start_time:  cycle?.start_date ? toTimeInputValue(cycle.start_date, getCurrentTimeInputValue()) : getCurrentTimeInputValue(),
@@ -280,6 +281,35 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
   });
   const [saving, setSaving] = useState(false);
 
+  // Fetch last cycle on mount to pre-populate year if creating new
+  useEffect(() => {
+    const fetchLastCycle = async () => {
+      if (cycle) return; // Skip if editing existing cycle
+      
+      try {
+        const { data, error } = await supabase
+          .from('ranking_cycles')
+          .select('year')
+          .order('cycle_id', { ascending: false })
+          .limit(1);
+        
+        if (error) throw error;
+        if (data && data.length > 0) {
+          const lastYear = data[0].year;
+          setForm(prev => ({
+            ...prev,
+            yearStart: lastYear,
+            yearEnd: lastYear + 1,
+          }));
+        }
+      } catch (err) {
+        console.warn('Could not fetch last cycle year:', err);
+      }
+    };
+    
+    fetchLastCycle();
+  }, [cycle]);
+
   useEffect(() => {
     if (focusDeadline && deadlineDateRef.current) {
       deadlineDateRef.current.focus();
@@ -288,6 +318,25 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
   }, [focusDeadline]);
 
   const set = (field, value) => setForm(f => ({ ...f, [field]: value }));
+
+  // Format date to "May 10, 2026" format
+  const formatDateDisplay = (dateStr) => {
+    if (!dateStr) return 'No date';
+    const date = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return 'No date';
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  // Format time to 12-hour AM/PM format
+  const formatTimeDisplay = (timeStr) => {
+    if (!timeStr) return '';
+    const [hours, minutes] = timeStr.split(':');
+    const h = parseInt(hours, 10);
+    const m = minutes;
+    const period = h >= 12 ? 'PM' : 'AM';
+    const displayHours = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${displayHours}:${m} ${period}`;
+  };
 
   // Utility function to remove undefined values from object
   const cleanData = (data) => {
@@ -301,10 +350,19 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
   };
 
   const generateTitle = () => {
-    return `${form.semester} ${form.year}`;
+    if (form.yearStart && form.yearEnd) {
+      return `${form.semester} ${form.yearStart}-${form.yearEnd}`;
+    }
+    return `${form.semester} [Enter academic year]`;
   };
 
   const handleSave = async () => {
+    // Validate academic year - allow if populated (including from fetch)
+    if (!form.yearStart || !form.yearEnd) {
+      alert('Please enter both start and end years for the academic year.');
+      return;
+    }
+
     const title = form.title || generateTitle();
     // Keep local date/time from the form for deterministic cycle/profile window behavior.
     const startTimestamp = mergeLocalDateAndTimeToIso(form.start_date, form.start_time || existingStartTime) || new Date().toISOString();
@@ -361,7 +419,7 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
 
     const cycleData = {
       title,
-      year: Number(form.year),
+      year: Number(form.yearStart),
       semester: form.semester,
       start_date: startTimestamp,
       deadline: deadlineTimestamp,
@@ -459,11 +517,35 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
               <div className="modal-grid">
                 <div className="modal-field">
                   <label>Academic Year</label>
-                  <input
-                    type="number"
-                    value={form.year}
-                    onChange={e => set('year', Number(e.target.value))}
-                  />
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      value={form.yearStart}
+                      onChange={e => {
+                        const val = e.target.value;
+                        const startYear = val === '' || val === '0' ? '' : Number(val);
+                        set('yearStart', startYear);
+                        // Auto-update end year if it's not manually set or is just +1
+                        if (startYear && form.yearEnd === (form.yearStart || 0) + 1) {
+                          set('yearEnd', startYear + 1);
+                        }
+                      }}
+                      placeholder="2026"
+                      style={{ width: '100px' }}
+                    />
+                    <span style={{ color: '#666' }}>—</span>
+                    <input
+                      type="number"
+                      value={form.yearEnd}
+                      onChange={e => {
+                        const val = e.target.value;
+                        const endYear = val === '' || val === '0' ? '' : Number(val);
+                        set('yearEnd', endYear);
+                      }}
+                      placeholder="2027"
+                      style={{ width: '100px' }}
+                    />
+                  </div>
                 </div>
                 <div className="modal-field">
                   <label>Semester</label>
@@ -489,9 +571,8 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
                   <select value={form.status} onChange={e => set('status', e.target.value)}>
                     <option value="open">Open</option>
                     <option value="submissions_closed">Submissions Closed</option>
-                    <option value="finished">Finished</option>
                   </select>
-                  <small>Use Submissions Closed to keep evaluation active, and Finished only when the semester is complete.</small>
+                  <small>Use Submissions Closed to keep evaluation active.</small>
                 </div>
               </div>
 
@@ -563,13 +644,13 @@ function TimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
                     <label>Preview</label>
                     <span style={{ display: 'block', marginTop: '4px' }}>{form.title || generateTitle()}</span>
                     <span style={{ display: 'block', marginTop: '6px', color: 'var(--muted)', fontSize: '0.74rem' }}>
-                      {form.start_date || 'No start date'} {form.start_time ? `• ${form.start_time}` : ''} {' '}→{' '}
-                      {form.deadline || 'No deadline'} {form.deadline_time ? `• ${form.deadline_time}` : ''}
+                      {formatDateDisplay(form.start_date)} {form.start_time ? `• ${formatTimeDisplay(form.start_time)}` : 'No start date'} {' '}→{' '}
+                      {formatDateDisplay(form.deadline)} {form.deadline_time ? `• ${formatTimeDisplay(form.deadline_time)}` : 'No deadline'}
                     </span>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <span className={`summary-pill ${form.status}`}>
-                        {form.status === 'open' ? 'Open' : form.status === 'submissions_closed' ? 'Submissions Closed' : 'Finished'}
+                        {form.status === 'open' ? 'Open' : 'Submissions Closed'}
                     </span>
                     <span className={`summary-pill ${form.profile_edit_open ? 'open' : 'closed'}`} style={{ marginLeft: '8px' }}>
                       {form.profile_edit_open ? 'Profile Open' : 'Profile Locked'}
