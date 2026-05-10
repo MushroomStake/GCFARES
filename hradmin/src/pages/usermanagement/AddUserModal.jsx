@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const FIXED_EMAIL_DOMAIN = '@gordoncollege.edu.ph';
 
@@ -25,8 +25,41 @@ export default function AddUserModal({ selectedCycleId = '', departments = [], o
   });
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
+  const [emailManuallyEdited, setEmailManuallyEdited] = useState(false);
 
   const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  const generateEmailUsername = (lastName, firstName) => {
+    if (!lastName.trim() || !firstName.trim()) return '';
+    
+    const lastNameClean = lastName.trim().toLowerCase().replace(/\s+/g, '');
+    const firstNameClean = firstName.trim().toLowerCase().replace(/\s+/g, '');
+    
+    // Format: lastname.firstname
+    return `${lastNameClean}.${firstNameClean}`;
+  };
+
+  // Auto-generate email whenever lastName or firstName changes (but not if manually edited)
+  useEffect(() => {
+    if (!emailManuallyEdited) {
+      const newEmail = generateEmailUsername(form.lastName, form.firstName);
+      set('emailLocal', newEmail);
+    }
+  }, [form.lastName, form.firstName, emailManuallyEdited]);
+
+  const handleLastNameChange = (value) => {
+    set('lastName', value);
+  };
+
+  const handleFirstNameChange = (value) => {
+    set('firstName', value);
+  };
+
+  const handleEmailChange = (value) => {
+    set('emailLocal', value);
+    // Mark as manually edited on ANY change (including deletions)
+    setEmailManuallyEdited(true);
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -119,11 +152,11 @@ export default function AddUserModal({ selectedCycleId = '', departments = [], o
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '14px' }}>
             <div className="field-group" style={{ textAlign: 'left' }}>
               <label style={{ textAlign: 'left' }}>Last Name *</label>
-              <input className="field-input" type="text" value={form.lastName} onChange={(e) => set('lastName', e.target.value)} placeholder="Dela Cruz" />
+              <input className="field-input" type="text" value={form.lastName} onChange={(e) => handleLastNameChange(e.target.value)} placeholder="Dela Cruz" />
             </div>
             <div className="field-group" style={{ textAlign: 'left' }}>
               <label style={{ textAlign: 'left' }}>First Name *</label>
-              <input className="field-input" type="text" value={form.firstName} onChange={(e) => set('firstName', e.target.value)} placeholder="Juan" />
+              <input className="field-input" type="text" value={form.firstName} onChange={(e) => handleFirstNameChange(e.target.value)} placeholder="Juan" />
             </div>
             <div className="field-group" style={{ textAlign: 'left' }}>
               <label style={{ textAlign: 'left' }}>Middle Name</label>
@@ -134,13 +167,12 @@ export default function AddUserModal({ selectedCycleId = '', departments = [], o
           <section style={{ padding: '16px', borderRadius: '20px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.78fr) 220px', gap: '14px', alignItems: 'end' }}>
               <div className="field-group" style={{ marginBottom: 0, textAlign: 'left' }}>
-                <label style={{ textAlign: 'left' }}>Email Username *</label>
+                <label style={{ textAlign: 'left' }}>Domain Email *</label>
                 <input
                   className="field-input"
                   type="text"
                   value={form.emailLocal}
-                  onChange={(e) => set('emailLocal', e.target.value)}
-                  placeholder="faculty.user"
+                  onChange={(e) => handleEmailChange(e.target.value)}
                   style={{ maxWidth: '100%' }}
                 />
               </div>
