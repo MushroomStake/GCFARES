@@ -942,6 +942,22 @@ function getFirstValue(source, keys, fallback = null) {
     return fallback;
 }
 
+function getDisplayFileNameFromPath(pathValue) {
+    if (!pathValue) return null;
+    const rawName = String(pathValue)
+        .split("?")[0]
+        .split("#")[0]
+        .split(/[\\/]/)
+        .pop();
+    if (!rawName) return null;
+
+    try {
+        return decodeURIComponent(rawName).replace(/^\d{10,}_/, "") || null;
+    } catch {
+        return rawName.replace(/^\d{10,}_/, "") || null;
+    }
+}
+
 const ROMAN_ORDER = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 
 function compressSequentialApplyingFor(value) {
@@ -1259,6 +1275,35 @@ function toPartFolderName(part) {
     return "Part Unknown";
 }
 
+function normalizePartFolderName(value) {
+    const match = String(value || "").match(/Part\s+([A-Za-z](?:\.\d+)?)/i);
+    return match?.[1] ? match[1].toUpperCase() : "";
+}
+
+function getPartFolderNameFromPath(pathValue) {
+    if (!pathValue) return "";
+    const pathSegments = String(pathValue)
+        .split(/[\\/]/)
+        .map((segment) => {
+            try {
+                return decodeURIComponent(segment);
+            } catch {
+                return segment;
+            }
+        });
+
+    return pathSegments.find((segment) => /^Part\s+[A-Za-z](?:\.\d+)?$/i.test(segment)) || "";
+}
+
+function getAreaNumberFromPath(pathValue) {
+    if (!pathValue) return null;
+    const match = String(pathValue).match(/(?:^|[\\/])Area\s+(\d+)(?:[\\/]|$)/i);
+    if (!match?.[1]) return null;
+
+    const areaNumber = Number(match[1]);
+    return Number.isInteger(areaNumber) && areaNumber > 0 ? areaNumber : null;
+}
+
 function buildTemplatePathForPart(part) {
     const areaId = resolvePartAreaId(part);
     if (!areaId || !part?.id) return null;
@@ -1554,22 +1599,6 @@ function mergePartWithSubmission(part, submissionRow) {
         status = "draft"; // Treat pending as draft
     }
 
-    const file =
-        getFirstValue(submissionRow, [
-            "file_name",
-            "filename",
-            "name",
-            "original_file_name",
-        ]) || part.file;
-    const dateText =
-        formatDateTime(
-            getFirstValue(submissionRow, [
-                "submitted_at",
-                "updated_at",
-                "uploaded_at",
-                "created_at",
-            ]),
-        ) || part.date;
     const fileUrl = getFirstValue(submissionRow, [
         "file_url",
         "download_url",
@@ -1582,6 +1611,24 @@ function mergePartWithSubmission(part, submissionRow) {
         "object_path",
     ]);
     const submissionId = getFirstValue(submissionRow, ["id", "submission_id"]);
+    const file =
+        getFirstValue(submissionRow, [
+            "file_name",
+            "filename",
+            "name",
+            "original_file_name",
+        ]) ||
+        getDisplayFileNameFromPath(storagePath) ||
+        part.file;
+    const dateText =
+        formatDateTime(
+            getFirstValue(submissionRow, [
+                "submitted_at",
+                "updated_at",
+                "uploaded_at",
+                "created_at",
+            ]),
+        ) || part.date;
 
     return {
         ...part,
@@ -1655,10 +1702,15 @@ function mergeAreasWithSubmissions(areas, submissionRows, areaIdMapping) {
             "criterionId",
         ]);
 
-        // If the submission row doesn't include a specific part/subpart id,
-        // try to associate it with the area's first leaf part using `area_id`.
         if (!partId) {
             let areaIdVal = getFirstValue(row, ["area_id", "areaId", "area"]);
+            const storagePath = getFirstValue(row, [
+                "file_path",
+                "storage_path",
+                "path",
+                "object_path",
+            ]);
+            const pathAreaNumber = getAreaNumberFromPath(storagePath);
 
             // If we have an area_id mapping (database ID → frontend ID), use it
             if (areaIdMapping && areaIdVal) {
@@ -1666,6 +1718,9 @@ function mergeAreasWithSubmissions(areas, submissionRows, areaIdMapping) {
                 if (frontendAreaId) {
                     areaIdVal = frontendAreaId;
                 }
+            }
+            if (pathAreaNumber && (!areaIdMapping || !areaIdMapping[areaIdVal])) {
+                areaIdVal = pathAreaNumber;
             }
 
             if (areaIdVal) {
@@ -1681,7 +1736,19 @@ function mergeAreasWithSubmissions(areas, submissionRows, areaIdMapping) {
                 if (matchedArea) {
                     const leafParts = getLeafParts(matchedArea);
                     if (leafParts && leafParts.length > 0) {
-                        partId = leafParts[0].id;
+                        const pathPartName = normalizePartFolderName(
+                            getPartFolderNameFromPath(storagePath),
+                        );
+                        const matchedPart = pathPartName
+                            ? leafParts.find(
+                                  (leafPart) =>
+                                      normalizePartFolderName(
+                                          toPartFolderName(leafPart),
+                                      ) === pathPartName,
+                              )
+                            : null;
+
+                        partId = matchedPart?.id || leafParts[0].id;
                     }
                 }
             }
@@ -1985,9 +2052,9 @@ const styles = `
   .hm-pc-rubric-list li::before{content:'▸';position:absolute;left:0;color:var(--gc-gold);font-size:9.5px;top:2px;}
   .hm-pc-rubric-list li.indent{padding-left:24px;color:var(--text-muted);}
   .hm-pc-rubric-list li.indent::before{left:10px;}
-  .hm-required-file{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 11px;border:1px dashed rgba(26,107,60,.35);border-radius:9px;background:#f7fbf8;color:var(--text-muted);font-size:12px;}
-  .hm-required-file strong{color:var(--gc-green-dark);font-weight:700;}
-  .hm-required-file code{font-family:Consolas,'Courier New',monospace;font-size:11.5px;color:#1a1a1a;background:#fff;border:1px solid #dde5df;border-radius:6px;padding:2px 6px;overflow-wrap:anywhere;}
+  .hm-required-file{display:flex;align-items:center;gap:8px;flex:0 1 auto;width:fit-content;max-width:min(100%,520px);padding:8px 11px;border:1px dashed rgba(26,107,60,.35);border-radius:8px;background:#f7fbf8;color:var(--text-muted);font-size:12px;}
+  .hm-required-file strong{color:var(--gc-green-dark);font-weight:700;white-space:nowrap;flex-shrink:0;}
+  .hm-required-file code{font-family:Consolas,'Courier New',monospace;font-size:11.5px;color:#1a1a1a;background:#fff;border:1px solid #dde5df;border-radius:6px;padding:2px 6px;flex:0 1 auto;min-width:0;max-width:min(42ch,44vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   /* Auto info */
   .hm-auto-info{background:var(--blue-pale);border:1px solid rgba(36,113,163,0.2);border-radius:8px;padding:12px 14px;display:flex;align-items:flex-start;gap:10px;}
   .hm-auto-info p{font-size:13px;color:var(--blue);line-height:1.6;}
@@ -1995,11 +2062,11 @@ const styles = `
   .hm-pc-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
   .hm-btn-template{display:flex;align-items:center;gap:5px;padding:8px 13px;border-radius:8px;font-size:12px;font-weight:700;border:1.5px solid var(--gc-green);background:var(--gc-green-pale);color:var(--gc-green);cursor:pointer;font-family:'Source Sans 3',sans-serif;transition:all .15s;white-space:nowrap;flex-shrink:0;}
   .hm-btn-template:hover{background:var(--gc-green);color:var(--white);}
-  .hm-file-zone{flex:1;min-width:180px;display:flex;align-items:center;gap:7px;background:#f4f7f5;border-radius:8px;padding:8px 11px;font-size:12px;color:var(--text-mid);}
-  .hm-file-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;}
+  .hm-file-zone{flex:0 1 auto;min-width:0;width:fit-content;max-width:min(100%,520px);display:flex;align-items:center;gap:7px;background:#f4f7f5;border-radius:8px;padding:8px 11px;font-size:12px;color:var(--text-mid);}
+  .hm-file-name{flex:0 1 auto;min-width:0;max-width:min(42ch,44vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;}
   .hm-fab{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;transition:all .15s;flex-shrink:0;}
   .hm-fab-view{background:#e8f4fd;color:var(--blue);}.hm-fab-dl{background:var(--gc-green-pale);color:var(--gc-green);}.hm-fab-del{background:var(--danger-pale);color:var(--danger);}
-  .hm-btn-attach{display:flex;align-items:center;gap:5px;padding:8px 13px;border-radius:8px;font-size:12px;font-weight:600;border:1.5px dashed var(--border);background:var(--white);cursor:pointer;font-family:'Source Sans 3',sans-serif;color:var(--text-muted);transition:all .15s;white-space:nowrap;flex:1;}
+  .hm-btn-attach{display:flex;align-items:center;gap:5px;padding:8px 13px;border-radius:8px;font-size:12px;font-weight:600;border:1.5px dashed var(--border);background:var(--white);cursor:pointer;font-family:'Source Sans 3',sans-serif;color:var(--text-muted);transition:all .15s;white-space:nowrap;flex:0 0 auto;width:fit-content;}
   .hm-btn-attach:hover{border-color:var(--gc-green);color:var(--gc-green);}
   .hm-btn-replace{display:flex;align-items:center;gap:5px;padding:8px 11px;border-radius:8px;font-size:12px;font-weight:600;border:1.5px solid var(--border);background:var(--white);cursor:pointer;font-family:'Source Sans 3',sans-serif;color:var(--text-muted);transition:background .15s;white-space:nowrap;flex-shrink:0;}
   .hm-btn-replace:hover{background:var(--off-white);}
@@ -2024,6 +2091,8 @@ const styles = `
     .hm-rs-item{flex:1 1 100%;}
     .hm-detail-header{flex-direction:column;align-items:flex-start;gap:8px;}.hm-dh-right{text-align:left;}
     .hm-pc-controls{flex-direction:column;align-items:stretch;}
+    .hm-required-file{max-width:100%;}
+    .hm-required-file code{max-width:100%;}
     .hm-btn-template,.hm-btn-attach,.hm-btn-replace,.hm-btn-submit{justify-content:center;}
   }
   @media(max-width:411.98px){
@@ -2114,6 +2183,12 @@ function PartCard({
         const isBusy = Boolean(partBusyAction);
         const requiredName = getRequiredName?.(part.id) || null;
         const requiredDisplayName = requiredName ? `${requiredName}.pdf` : null;
+        const requiredFileChip = requiredDisplayName ? (
+            <div className="hm-required-file" title={requiredDisplayName}>
+                <strong>Required filename</strong>
+                <code>{requiredDisplayName}</code>
+            </div>
+        ) : null;
 
     return (
         <div className={`hm-pc ${sc}`}>
@@ -2144,13 +2219,6 @@ function PartCard({
                     </ul>
                 </div>
 
-                {requiredDisplayName && (
-                    <div className="hm-required-file">
-                        <strong>Required filename</strong>
-                        <code>{requiredDisplayName}</code>
-                    </div>
-                )}
-
                 {part.auto ? (
                     <div className="hm-auto-info">
                         <Lock
@@ -2171,6 +2239,8 @@ function PartCard({
                     <>
                         {/* Still allow template download and viewing submitted files when closed */}
                         <div className="hm-pc-controls">
+                            {requiredFileChip}
+
                             <button
                                 type="button"
                                 className="hm-btn-template"
@@ -2253,6 +2323,8 @@ function PartCard({
                     <>
                         {/* Controls: Template + File + Submit */}
                         <div className="hm-pc-controls">
+                            {requiredFileChip}
+
                             {/* Template download for this Part */}
                             <button
                                 type="button"

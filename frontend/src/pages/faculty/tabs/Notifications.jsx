@@ -89,8 +89,8 @@ const css = `
   }
 `;
 
-const TABS = ["all", "unread", "system", "hr"];
-const TAB_LABELS = { all: "All", unread: "Unread", system: "System", hr: "HR / VPAA" };
+const TABS = ["all", "unread", "system"];
+const TAB_LABELS = { all: "All", unread: "Unread", system: "System" };
 
 // ─── Main Export ──────────────────────────────────────────────
 export default function Notifications({ notifications, onMarkAllRead, onMarkRead }) {
@@ -115,7 +115,6 @@ export default function Notifications({ notifications, onMarkAllRead, onMarkRead
         if (activeTab === "all")    return true;
         if (activeTab === "unread") return n.unread;
         if (activeTab === "system") return n.type === "system";
-        if (activeTab === "hr")     return n.type === "hr";
         return true;
     });
 
@@ -133,7 +132,7 @@ export default function Notifications({ notifications, onMarkAllRead, onMarkRead
                         Notifications
                     </div>
                     <div style={{ fontSize: 12.5, color: "#6b7c70", marginTop: 3, fontFamily: "'Source Sans 3', sans-serif" }}>
-                        System alerts, deadline reminders, and HR / VPAA updates
+                        System alerts and deadline reminders
                     </div>
                 </div>
                 {unreadCount > 0 && (
