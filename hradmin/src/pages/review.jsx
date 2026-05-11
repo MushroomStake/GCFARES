@@ -2,7 +2,7 @@ import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './review.css';
 import { supabase } from '../supabase';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import ApplicationsListView from './review/components/ApplicationsListView';
 import ReviewDetailView from './review/components/ReviewDetailView';
 import ReviewSummaryView from './review/components/ReviewSummaryView';
@@ -22,6 +22,9 @@ import { useReviewData } from '../hooks/useReviewData';
 export default function Review() {
   // All data fetching, state management moved to useReviewData hook
   const reviewData = useReviewData();
+  
+  // Modal state for completion confirmation
+  const [completionModal, setCompletionModal] = useState(false);
   
   // Reset page when filters change
   useEffect(() => {
@@ -302,8 +305,7 @@ export default function Review() {
         )
       );
 
-      alert('Qualifications saved and HR review completed successfully.');
-      reviewData.setView('detail');
+      setCompletionModal(true);
     } catch (error) {
       console.error('❌ Error saving qualifications:', error);
       alert('Failed to save qualifications. Please try again.');
@@ -319,6 +321,16 @@ export default function Review() {
         console.error('❌ Error refetching area submissions after auto-score:', error);
       }
     }
+  };
+
+  const handleCompletionModalClose = () => {
+    setCompletionModal(false);
+    reviewData.setView('list');
+    reviewData.setSelectedApplication(null);
+    reviewData.setSelectedFaculty(null);
+    reviewData.setAreaSubmissions([]);
+    reviewData.setDraftScores({});
+    reviewData.setExpandedAreaId(null);
   };
 
   const handleSelectArea = async (area) => {
@@ -599,19 +611,19 @@ export default function Review() {
     ? { ...reviewData.selectedApplication, display_score: selectedDisplayScore }
     : reviewData.selectedApplication;
 
-  const summaryAreaScores = reviewData.areaSubmissions
+  const summaryAreaScores = Array.from(uniqueSubmittedAreasMap.values())
     .map((submission) => {
-      const cappedScore = Number(submission.capped_score || 0);
-      const excessScore = Number(submission.excess_score || 0);
+      const bestSubmission = pickBestAreaSubmission(submission.area_id) || submission;
+      const cappedScore = Number(bestSubmission.capped_score ?? submission.capped_score ?? 0);
+      const excessScore = Number(bestSubmission.excess_score ?? submission.excess_score ?? 0);
       const max = Number(submission.area?.max_possible_points || 0);
-      const pct = max > 0 ? Math.min(100, Math.round((cappedScore / max) * 100)) : 0;
 
       return {
         label: submission.area?.area_name || submission.area_id,
         max,
         cappedScore,
         excessScore,
-        pct
+        pct: max > 0 ? Math.min(100, Math.round((cappedScore / max) * 100)) : 0
       };
     })
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
@@ -717,6 +729,84 @@ export default function Review() {
 
         </div>
       </div>
+
+      {/* Completion Confirmation Modal */}
+      {completionModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '32px',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            animation: 'slideIn 0.3s ease-out'
+          }}>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                backgroundColor: '#d1fae5',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '16px'
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+            </div>
+            <h3 style={{
+              fontSize: '20px',
+              fontWeight: 'bold',
+              color: '#1f2937',
+              marginBottom: '12px'
+            }}>HR Review Completed</h3>
+            <p style={{
+              fontSize: '14px',
+              color: '#6b7280',
+              marginBottom: '24px',
+              lineHeight: '1.5'
+            }}>
+              Qualifications saved and HR review completed successfully. The application has been marked as HR_Completed and will now be available for VPAA review.
+            </p>
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={handleCompletionModalClose}
+                style={{
+                  padding: '10px 24px',
+                  backgroundColor: '#10b981',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'backgroundColor 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.backgroundColor = '#059669'}
+                onMouseLeave={(e) => e.target.style.backgroundColor = '#10b981'}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

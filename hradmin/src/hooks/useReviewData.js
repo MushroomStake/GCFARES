@@ -361,20 +361,30 @@ export function useReviewData() {
 
       const submissionsWithPlaceholders = [...submissions, ...placeholderAreas];
 
-      // Keep submissions distinct per area + part so files/scores do not collapse into a single row.
-      // This lets Area I part A/B/... remain separate from part K and prevents one submission from
-      // overwriting another when the same area has multiple files in the same cycle.
+      // Deduplicate submissions: keep only the best submission per area.
+      // If part_id exists, keep parts separate (Area I part A/B/... remain separate).
+      // For submissions without part_id, remove duplicates by keeping the one with highest hr_points or latest upload.
       const submissionKey = (sub) => {
         const areaId = Number(sub.area_id);
         const partId = String(sub.part_id || '').trim().toLowerCase();
-        const fallbackId = String(sub.submission_id || sub.id || '').trim().toLowerCase();
-        return `${areaId}::${partId || fallbackId}`;
+        // Only include part_id in key if it exists; otherwise just use area_id
+        return partId ? `${areaId}::${partId}` : `${areaId}`;
+      };
+
+      // Helper to rank submission quality (for picking best when duplicates exist)
+      const rankSubmission = (sub) => {
+        const hasScore = Number(sub.hr_points || 0) > 0 ? 1 : 0;
+        const uploadTime = sub.uploaded_at ? new Date(sub.uploaded_at).getTime() : 0;
+        const isPlaceholder = sub.is_placeholder ? -1000000 : 0;
+        return hasScore * 1000 + uploadTime + isPlaceholder;
       };
 
       const areaMap = new Map();
       submissionsWithPlaceholders.forEach(sub => {
         const key = submissionKey(sub);
-        if (!areaMap.has(key)) {
+        const existing = areaMap.get(key);
+        // Keep the submission with higher rank (better score or newer upload)
+        if (!existing || rankSubmission(sub) > rankSubmission(existing)) {
           areaMap.set(key, sub);
         }
       });
