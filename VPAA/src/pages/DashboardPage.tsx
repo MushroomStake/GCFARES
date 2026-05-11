@@ -12,6 +12,7 @@ interface Cycle {
   deadline?: string;
   published?: string;
   badge: string | null;
+  rawStartDate: string;
 }
 
 interface ActivityLog {
@@ -24,6 +25,9 @@ interface ActivityLog {
 
 const DashboardPage = () => {
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [currentPeriod, setCurrentPeriod] = useState<Cycle | null>(null);
+  const [activePeriods, setActivePeriods] = useState<Cycle[]>([]);
+  const [donePeriods, setDonePeriods] = useState<Cycle[]>([]);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +36,18 @@ const DashboardPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchDashboardData();
+    void fetchDashboardData();
+
+    const periodSubscription = supabase
+      .channel('dashboard-period-updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ranking_cycles' },
+        () => {
+          void fetchDashboardData(true);
+        }
+      )
+      .subscribe();
 
     // --- NEW: Real-time listener for new notifications ---
     const notificationSubscription = supabase
@@ -65,13 +80,14 @@ const DashboardPage = () => {
 
     // Cleanup subscription on unmount
     return () => {
+      supabase.removeChannel(periodSubscription);
       supabase.removeChannel(notificationSubscription);
     };
   }, []);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
 
       // 1. Fetch Cycles from Supabase
       const { data: cyclesData, error: cyclesError } = await supabase
@@ -93,32 +109,34 @@ const DashboardPage = () => {
           ? new Date(data.published_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
           : undefined;
 
-        // Any status other than 'closed' means the cycle is still active/current
-        const isCycleOpen = data.status !== 'closed';
-
-        // Optionally, format the exact database status to look nicer, or stick to 'In Progress'
-        // For example: if status is 'submissions_closed', it becomes 'Submissions Closed'
-        const displayStatus = isCycleOpen 
-          ? data.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
-          : 'Completed';
+        // Active period: status is NOT 'finished' and NOT 'closed'
+        const isActive = data.status !== 'finished' && data.status !== 'closed';
 
         return {
           id: String(data.cycle_id || data.id), 
           title: data.title || `${data.semester} AY ${data.year}`,
-          status: displayStatus, // Uses the formatted DB string if not closed
-          isCurrent: isCycleOpen,
+          status: isActive ? 'Current' : 'Finished',
+          isCurrent: isActive,
           started: startDate,
           deadline: deadlineDate,
           published: publishedDate,
-          badge: !isCycleOpen ? 'CLOSED' : null
+          badge: !isActive ? 'FINISHED' : null,
+          rawStartDate: data.start_date || data.created_at || data.deadline || ''
         };
       });
 
-      // Sort cycles: current ones first
-      fetchedCycles.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
+      // Sort by newest period first
+      fetchedCycles.sort((a, b) => new Date(b.rawStartDate).getTime() - new Date(a.rawStartDate).getTime());
       
-      // Limit to showing only 4 cycles maximum
-      setCycles(fetchedCycles.slice(0, 4));
+      // Categorize cycles
+      const current = fetchedCycles.find((cycle) => cycle.isCurrent) || null;
+      const active = fetchedCycles.filter((cycle) => cycle.isCurrent && cycle.id !== current?.id);
+      const done = fetchedCycles.filter((cycle) => !cycle.isCurrent);
+      
+      setCurrentPeriod(current);
+      setActivePeriods(active);
+      setDonePeriods(done);
+      setCycles(fetchedCycles);
 
       // 2. Fetch Notifications
       const { data: notifData, error: notifError } = await supabase
@@ -151,7 +169,7 @@ const DashboardPage = () => {
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -180,15 +198,26 @@ const DashboardPage = () => {
           c.id === cycleToSubmit.id 
             ? { 
                 ...c, 
-                status: 'Completed', 
+                status: 'Finished', 
                 isCurrent: false, 
-                badge: 'CLOSED',
+                badge: 'FINISHED',
                 deadline: new Date(today).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
               } 
             : c
         );
-        // Re-sort so closed ones drop to the bottom
-        return updated.sort((a, b) => (b.isCurrent === a.isCurrent) ? 0 : b.isCurrent ? 1 : -1);
+        return updated.sort((a, b) => new Date(b.rawStartDate).getTime() - new Date(a.rawStartDate).getTime());
+      });
+
+      // Recategorize periods
+      setCycles(prev => {
+        const current = prev.find((cycle) => cycle.isCurrent) || null;
+        const active = prev.filter((cycle) => cycle.isCurrent && cycle.id !== current?.id);
+        const done = prev.filter((cycle) => !cycle.isCurrent);
+        
+        setCurrentPeriod(current);
+        setActivePeriods(active);
+        setDonePeriods(done);
+        return prev;
       });
 
       // Optional: Add a system notification that the cycle was published
@@ -211,108 +240,212 @@ const DashboardPage = () => {
 
   return (
     <div className="space-y-6 md:space-y-10 relative px-4 sm:px-6 md:px-0">
-      {/* Ranking Cycle History Section */}
+      {/* Ranking Period History Section */}
       <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 sm:p-6 md:p-8">
         
         {/* Responsive Header: Stacks on mobile, inline on tablet+ */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
           <div>
-            <h3 className="text-base font-bold text-sidebar">Ranking Cycle History</h3>
-            <p className="text-xs text-slate-500">All cycles you have participated in or that are currently open</p>
+            <h3 className="text-base font-bold text-sidebar">Ranking Period History</h3>
+            <p className="text-xs text-slate-500">Current period shown separately, active periods listed below, completed periods at the bottom</p>
           </div>
-          <div className="bg-primary/5 text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/10 self-start sm:self-auto">
-            {cycles.length} Cycles
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <span className="bg-primary/5 text-primary text-[10px] font-bold px-3 py-1 rounded-full border border-primary/10">
+              {cycles.length} Total Periods
+            </span>
           </div>
         </div>
 
-        {/* Grid layout is already perfect for 4 items (1 full row + 3 bottom row on desktop) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Added .slice(0, 4) here to enforce the 4-cycle limit visually */}
-          {cycles.slice(0, 4).map((cycle) => (
-            <div 
-              key={cycle.id}
-              className={`
-                relative p-5 sm:p-6 rounded-2xl border transition-all
-                ${cycle.isCurrent 
-                  ? 'bg-primary/[0.03] border-primary shadow-lg shadow-primary/5 col-span-full' 
-                  : 'bg-white border-slate-200 hover:border-primary/30 hover:shadow-md'}
-              `}
-            >
-              {cycle.badge && (
-                <span className="absolute top-4 right-4 bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded tracking-tighter">
-                  {cycle.badge}
-                </span>
-              )}
-
-              <div className="flex flex-col h-full">
-                <div className="mb-4 sm:mb-6 flex justify-between items-start">
-                  <div>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block ${cycle.isCurrent ? 'text-primary' : 'text-slate-400'}`}>
-                      {cycle.isCurrent ? 'Active Cycle' : 'Completed'}
-                    </span>
-                    <h4 className="text-base sm:text-lg font-bold text-slate-800">{cycle.title}</h4>
-                  </div>
-                </div>
-
-                {/* Responsive Dates: Wrapped flexbox to prevent mobile overflow */}
-                <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 mb-6 sm:mb-8">
-                  <div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Started</p>
-                    <p className="text-xs font-semibold text-slate-700">{cycle.started}</p>
-                  </div>
-                  {cycle.deadline && (
+        {/* CURRENT PERIOD SECTION */}
+        {currentPeriod && (
+          <div className="mb-8">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Currently Active</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+              <div 
+                key={currentPeriod.id}
+                className="relative h-full p-5 sm:p-6 rounded-2xl border transition-all flex flex-col bg-primary/[0.03] border-primary shadow-lg shadow-primary/5"
+              >
+                <div className="flex flex-col h-full">
+                  <div className="mb-4 sm:mb-6 flex justify-between items-start">
                     <div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Deadline</p>
-                      <p className="text-xs font-semibold text-slate-700">{cycle.deadline}</p>
+                      <span className="text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block text-primary">
+                        Current Period
+                      </span>
+                      <h5 className="text-base sm:text-[1.05rem] font-bold text-slate-800 leading-snug">{currentPeriod.title}</h5>
                     </div>
-                  )}
-                  {cycle.published && (
-                    <div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Published</p>
-                      <p className="text-xs font-semibold text-slate-700">{cycle.published}</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Responsive Footer: Stacks actions on very small screens */}
-                <div className="mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
-                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold w-fit ${
-                    cycle.isCurrent ? 'bg-primary/10 text-primary' : 'bg-emerald-50 text-emerald-600'
-                  }`}>
-                    {cycle.isCurrent ? <Clock size={12} /> : <CheckCircle2 size={12} />}
-                    {cycle.status}
                   </div>
-                  
-                  {cycle.isCurrent ? (
+
+                  {/* Responsive Dates */}
+                  <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 mb-6 sm:mb-8">
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Started</p>
+                      <p className="text-xs font-semibold text-slate-700">{currentPeriod.started}</p>
+                    </div>
+                    {currentPeriod.deadline && (
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Deadline</p>
+                        <p className="text-xs font-semibold text-slate-700">{currentPeriod.deadline}</p>
+                      </div>
+                    )}
+                    {currentPeriod.published && (
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Published</p>
+                        <p className="text-xs font-semibold text-slate-700">{currentPeriod.published}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer with Actions */}
+                  <div className="mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold w-fit bg-primary/10 text-primary">
+                      <Clock size={12} />
+                      {currentPeriod.status}
+                    </div>
+                    
                     <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto mt-2 sm:mt-0">
-                      <Link to={`/FacultyReviewPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1">
-                        Review Details
+                      <Link to={`/FacultyReviewPage/${currentPeriod.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1">
+                        Review Period
                       </Link>
                       <button 
-                        onClick={() => setCycleToSubmit(cycle)}
+                        onClick={() => setCycleToSubmit(currentPeriod)}
                         className="bg-primary text-white px-3 sm:px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors flex items-center justify-center gap-2 cursor-pointer flex-1 sm:flex-none"
                       >
-                        Submit Final 
+                        Finalize Period 
                         <ArrowRight size={14} />
                       </button>
                     </div>
-                  ) : (
-                    <Link to={`/HistoryPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group mt-2 sm:mt-0">
-                      See more
-                      <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                    </Link>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
-          ))}
+          </div>
+        )}
 
-          {cycles.length === 0 && !loading && (
-             <div className="col-span-full p-8 text-center text-slate-500 text-sm border-2 border-dashed border-slate-200 rounded-2xl">
-               No ranking cycles found. Create one to get started.
-             </div>
-          )}
-        </div>
+        {/* ACTIVE PERIODS SECTION */}
+        {activePeriods.length > 0 && (
+          <div className="mb-8">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Active Periods</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+              {activePeriods.map((cycle) => (
+                <div 
+                  key={cycle.id}
+                  className="relative h-full p-5 sm:p-6 rounded-2xl border transition-all flex flex-col bg-white border-slate-200 hover:border-primary/30 hover:shadow-md"
+                >
+                  <div className="flex flex-col h-full">
+                    <div className="mb-4 sm:mb-6 flex justify-between items-start">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block text-slate-400">
+                          Active Period
+                        </span>
+                        <h5 className="text-base sm:text-[1.05rem] font-bold text-slate-800 leading-snug">{cycle.title}</h5>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 mb-6 sm:mb-8">
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Started</p>
+                        <p className="text-xs font-semibold text-slate-700">{cycle.started}</p>
+                      </div>
+                      {cycle.deadline && (
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Deadline</p>
+                          <p className="text-xs font-semibold text-slate-700">{cycle.deadline}</p>
+                        </div>
+                      )}
+                      {cycle.published && (
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Published</p>
+                          <p className="text-xs font-semibold text-slate-700">{cycle.published}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold w-fit bg-primary/10 text-primary">
+                        <Clock size={12} />
+                        {cycle.status}
+                      </div>
+                      
+                      <Link to={`/FacultyReviewPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group mt-2 sm:mt-0">
+                        Review Period
+                        <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* COMPLETED PERIODS SECTION */}
+        {donePeriods.length > 0 && (
+          <div>
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Completed Periods</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+              {donePeriods.map((cycle) => (
+                <div 
+                  key={cycle.id}
+                  className="relative h-full p-5 sm:p-6 rounded-2xl border transition-all flex flex-col bg-slate-50 border-slate-200 hover:border-slate-300 hover:shadow-md"
+                >
+                  {cycle.badge && (
+                    <span className="absolute top-4 right-4 bg-slate-400 text-white text-[9px] font-black px-2 py-0.5 rounded tracking-tighter">
+                      {cycle.badge}
+                    </span>
+                  )}
+
+                  <div className="flex flex-col h-full">
+                    <div className="mb-4 sm:mb-6 flex justify-between items-start">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider mb-1.5 sm:mb-2 block text-slate-500">
+                          Finished Period
+                        </span>
+                        <h5 className="text-base sm:text-[1.05rem] font-bold text-slate-700 leading-snug">{cycle.title}</h5>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-4 sm:gap-6 md:gap-8 mb-6 sm:mb-8">
+                      <div>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Started</p>
+                        <p className="text-xs font-semibold text-slate-600">{cycle.started}</p>
+                      </div>
+                      {cycle.deadline && (
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Deadline</p>
+                          <p className="text-xs font-semibold text-slate-600">{cycle.deadline}</p>
+                        </div>
+                      )}
+                      {cycle.published && (
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Published</p>
+                          <p className="text-xs font-semibold text-slate-600">{cycle.published}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold w-fit bg-slate-200 text-slate-700">
+                        <CheckCircle2 size={12} />
+                        {cycle.status}
+                      </div>
+                      
+                      <Link to={`/HistoryPage/${cycle.id}`} className="text-primary text-[10px] font-bold hover:underline flex items-center gap-1 group mt-2 sm:mt-0">
+                        View Period
+                        <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {cycles.length === 0 && !loading && (
+           <div className="p-8 text-center text-slate-500 text-sm border-2 border-dashed border-slate-200 rounded-2xl">
+             No ranking periods found. Create one to get started.
+           </div>
+        )}
       </section>
 
       {/* System Notifications Section (Already highly responsive) */}
@@ -360,7 +493,7 @@ const DashboardPage = () => {
               </div>
               <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Publish Final Results?</h3>
               <p className="text-sm text-slate-500 text-center mb-6">
-                Are you sure you want to finalize the results for <strong>{cycleToSubmit.title}</strong>? Once published, this ranking cycle will be closed and results will be recorded in history.
+                Are you sure you want to finalize the results for <strong>{cycleToSubmit.title}</strong>? Once published, this ranking period will be closed and results will be recorded in history.
               </p>
               <div className="flex flex-col-reverse sm:flex-row gap-3">
                 <button 

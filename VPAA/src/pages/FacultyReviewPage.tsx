@@ -127,11 +127,13 @@ const FacultyReviewPage = () => {
   const [selectedDepartment, setSelectedDepartment] = useState("All");
 
   useEffect(() => {
-    const fetchFacultyForActiveCycle = async () => {
+    let mounted = true;
+
+    const fetchFacultyForActivePeriod = async (silent = false) => {
       try {
-        setLoading(true);
+        if (!silent) setLoading(true);
         
-        // 1. Fetch the active cycle. Prefer open/submissions_closed/finished; fallback to most recent.
+        // 1. Fetch the active period. Prefer open/submissions_closed/finished; fallback to most recent.
         let activeCycleId = null;
         const { data: cycleSnap, error: cycleError } = await supabase
           .from('ranking_cycles')
@@ -158,13 +160,13 @@ const FacultyReviewPage = () => {
         }
 
         if (!activeCycleId) {
-          console.warn('No ranking cycle available to load applications');
-          setFacultyData([]);
-          setLoading(false);
+          console.warn('No ranking period available to load applications');
+          if (mounted) setFacultyData([]);
+          if (!silent) setLoading(false);
           return;
         }
 
-        // 2. Fetch applications for the active cycle
+        // 2. Fetch applications for the active period
         let { data: appsSnap, error: appsError } = await supabase
           .from('applications')
           .select('*')
@@ -175,7 +177,7 @@ const FacultyReviewPage = () => {
         // If no applications were found for the selected cycle, try a fallback:
         // find the most recent cycle that contains HR_Completed applications
         if ((!appsSnap || appsSnap.length === 0)) {
-          console.log('VPAA DEBUG: no applications found for activeCycleId=', activeCycleId, '- searching for recent cycle with HR_Completed apps');
+          console.log('VPAA DEBUG: no applications found for activeCycleId=', activeCycleId, '- searching for recent period with HR_Completed apps');
           const { data: hrCycle, error: hrCycleError } = await supabase
             .from('applications')
             .select('cycle_id, hr_completed_at')
@@ -343,15 +345,38 @@ const FacultyReviewPage = () => {
           ranking: index + 1
         }));
 
-        setFacultyData(fetchedFaculty);
+        if (mounted) setFacultyData(fetchedFaculty);
       } catch (error) {
         console.error("Error fetching faculty applications:", error);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
     };
 
-    fetchFacultyForActiveCycle();
+    void fetchFacultyForActivePeriod();
+
+    const liveChannel = supabase
+      .channel('vpaa-faculty-period-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'applications' },
+        () => {
+          void fetchFacultyForActivePeriod(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ranking_cycles' },
+        () => {
+          void fetchFacultyForActivePeriod(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(liveChannel);
+    };
   }, []);
 
   const stats = [
@@ -372,7 +397,7 @@ const FacultyReviewPage = () => {
     { 
       label: 'Total Faculty', 
       value: facultyData.length, 
-      sub: 'Current Cycle Applicants', 
+      sub: 'Current Period Applicants', 
       icon: <FileText className="text-emerald-600" />, 
       color: 'emerald' 
     },
@@ -399,7 +424,7 @@ const FacultyReviewPage = () => {
     return (
       <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
         <Loader2 className="animate-spin text-emerald-600" size={40} />
-        <p className="text-sm font-semibold text-slate-500 animate-pulse">Loading active cycle and faculty data...</p>
+        <p className="text-sm font-semibold text-slate-500 animate-pulse">Loading active period and faculty data...</p>
       </div>
     );
   }
@@ -426,7 +451,7 @@ const FacultyReviewPage = () => {
       <section className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="p-8 pb-4">
           <h3 className="text-2xl font-black text-slate-800 mb-1">Faculty List</h3>
-          <p className="text-sm text-slate-500 font-medium mb-8">View and manage faculty information and submissions</p>
+          <p className="text-sm text-slate-500 font-medium mb-8">View and manage faculty information and submissions for the current period</p>
 
           <div className="flex flex-wrap gap-4 items-center justify-between mb-6">
             <div className="relative flex-1 max-w-md">

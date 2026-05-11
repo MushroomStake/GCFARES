@@ -62,7 +62,7 @@ const CycleDetailsPage = () => {
       try {
         setLoading(true);
         
-        // 1. Fetch Cycle Details
+        // 1. Fetch period details
         const { data: cycleData, error: cycleError } = await supabase
           .from('ranking_cycles')
           .select('*')
@@ -75,7 +75,7 @@ const CycleDetailsPage = () => {
           return;
         }
         
-       // 2. Fetch Applications with Joined User and Department Data
+      // 2. Fetch applications with joined user and department data
         const { data: appsData, error: appsError } = await supabase
           .from('applications')
           .select(`
@@ -142,15 +142,15 @@ const CycleDetailsPage = () => {
         resolvedRankings.sort((a, b) => b.points - a.points);
         const totalFaculty = appsData ? appsData.length : 0;
 
-        // Expanded logic to match what constitutes an active cycle
+        // Expanded logic to match what constitutes an active period
         const isCycleActive = ['open', 'submissions_closed', 'finished'].includes(cycleData.status);
 
         if (isMounted) {
           setCycle({
-            title: cycleData.title || 'Ranking Cycle',
+            title: cycleData.title || 'Ranking Period',
             semester: cycleData.semester || 'N/A',
             year: cycleData.year ? String(cycleData.year) : 'N/A',
-            status: isCycleActive ? 'Active' : 'Closed',
+            status: isCycleActive ? 'Current' : 'Finished',
             stats: {
               totalFaculty,
               completed: completedCount,
@@ -259,7 +259,7 @@ const CycleDetailsPage = () => {
     return (
       <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
         <Loader2 className="animate-spin text-primary" size={40} />
-        <p className="text-sm font-semibold text-slate-500 animate-pulse">Loading cycle data...</p>
+        <p className="text-sm font-semibold text-slate-500 animate-pulse">Loading period data...</p>
       </div>
     );
   }
@@ -269,6 +269,8 @@ const CycleDetailsPage = () => {
       <div className="flex items-center gap-4">
         <button 
           onClick={() => navigate(-1)}
+          title="Go back"
+          aria-label="Go back"
           className="p-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-primary hover:border-primary transition-all shadow-sm cursor-pointer"
         >
           <ArrowLeft size={20} />
@@ -278,13 +280,13 @@ const CycleDetailsPage = () => {
           <p className="text-[11px] font-bold text-primary uppercase tracking-wider mt-0.5 mb-1">
             {cycle.semester} • AY {cycle.year}
           </p>
-          <p className="text-xs text-slate-500">Comprehensive cycle report and faculty rankings</p>
+          <p className="text-xs text-slate-500">Comprehensive period report and faculty rankings</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className={`${statusCardBg} border p-6 rounded-2xl transition-colors`}>
-          <p className={`text-[10px] font-bold ${statusLabelColor} uppercase tracking-wider mb-2`}>Cycle Status</p>
+          <p className={`text-[10px] font-bold ${statusLabelColor} uppercase tracking-wider mb-2`}>Period Status</p>
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${statusDotColor}`} />
             <h4 className={`text-xl font-bold ${statusTextColor}`}>{cycle.status}</h4>
@@ -300,9 +302,14 @@ const CycleDetailsPage = () => {
             <h4 className="text-2xl font-bold text-sidebar">{completionPercentage}%</h4>
             <p className="text-xs text-slate-400 mb-1">({cycle.stats.completed}/{cycle.stats.totalFaculty})</p>
           </div>
-          <div className="w-full h-1.5 bg-slate-100 rounded-full mt-3 overflow-hidden">
-             <div className="bg-amber-500 h-full rounded-full transition-all" style={{ width: `${completionPercentage}%` }} />
-          </div>
+           <div className="mt-3">
+             <progress
+              value={completionPercentage}
+              max={100}
+              aria-label="Completion progress"
+              className="w-full h-1.5 overflow-hidden rounded-full bg-slate-100 [&::-webkit-progress-bar]:bg-slate-100 [&::-webkit-progress-value]:bg-amber-500 [&::-webkit-progress-value]:rounded-full [&::-moz-progress-bar]:bg-amber-500"
+             />
+           </div>
         </div>
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Total & Avg Points</p>
@@ -368,7 +375,7 @@ const CycleDetailsPage = () => {
               {filteredRankings.length === 0 ? (
                  <tr>
                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-slate-500">
-                     {searchTerm || activeFilterCount > 0 ? 'No faculty found matching your filters.' : 'No faculty applications found for this cycle.'}
+                     {searchTerm || activeFilterCount > 0 ? 'No faculty found matching your filters.' : 'No faculty applications found for this period.'}
                    </td>
                  </tr>
               ) : (
@@ -395,10 +402,12 @@ const CycleDetailsPage = () => {
                       <td className="px-6 py-4 text-xs font-semibold text-slate-500">{faculty.department}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            {/* Bar scales dynamically against the highest earner in the cycle */}
-                            <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${(faculty.points / safeMaxPoints) * 100}%` }} />
-                          </div>
+                          <progress
+                            value={(faculty.points / safeMaxPoints) * 100}
+                            max={100}
+                            aria-label={`${faculty.name} score progress`}
+                            className="w-24 h-1.5 overflow-hidden rounded-full bg-slate-100 [&::-webkit-progress-bar]:bg-slate-100 [&::-webkit-progress-value]:bg-primary [&::-webkit-progress-value]:rounded-full [&::-moz-progress-bar]:bg-primary"
+                          />
                           <span className="text-sm font-bold text-slate-800">{faculty.points}</span>
                         </div>
                       </td>
@@ -433,20 +442,20 @@ const CycleDetailsPage = () => {
                 <Filter size={16} className="text-primary" />
                 Filter Rankings
               </h3>
-              <button onClick={() => setIsFilterModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button onClick={() => setIsFilterModalOpen(false)} title="Close filters" aria-label="Close filters" className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X size={20} />
               </button>
             </div>
             <div className="p-6 space-y-5">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Department</label>
-                <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} title="Filter by department" aria-label="Filter by department" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
                   {uniqueDepartments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
                 </select>
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application Status</label>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Filter by application status" aria-label="Filter by application status" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
                   {uniqueStatuses.map(status => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>

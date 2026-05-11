@@ -64,7 +64,7 @@ const HistoryPage = () => {
             highestAverage = Number(avgPoints);
           }
 
-          // Updated logic to match active cycle statuses
+          // Updated logic to match active period statuses
           const isActive = ['open', 'submissions_closed', 'finished'].includes(data.status);
 
           fetchedCycles.push({
@@ -72,7 +72,7 @@ const HistoryPage = () => {
             title: data.title || `${data.semester || 'Semester'} ${data.year || 'Year'}`,
             semester: data.semester || 'N/A',
             year: String(data.year || 'N/A'),
-            status: isActive ? 'Active' : 'Closed', 
+            status: isActive ? 'Current' : 'Finished', 
             started: formatDate(data.start_date),
             published: formatDate(data.deadline),
             totalFaculty,
@@ -221,8 +221,8 @@ const HistoryPage = () => {
       {/* Header with Search/Filter */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-xl font-bold text-sidebar">Ranking History</h2>
-          <p className="text-xs text-slate-500">Archive of all past and current ranking cycles</p>
+          <h2 className="text-xl font-bold text-sidebar">Ranking Period History</h2>
+          <p className="text-xs text-slate-500">Archive of all past and current ranking periods</p>
         </div>
         
         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -236,7 +236,7 @@ const HistoryPage = () => {
               className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
             />
           </div>
-          <button className="p-2 border border-slate-200 rounded-lg bg-white text-slate-600 hover:text-primary hover:border-primary transition-colors">
+          <button className="p-2 border border-slate-200 rounded-lg bg-white text-slate-600 hover:text-primary hover:border-primary transition-colors" title="Filter ranking periods" aria-label="Filter ranking periods">
             <Filter size={18} />
           </button>
         </div>
@@ -245,7 +245,7 @@ const HistoryPage = () => {
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
-          { label: 'Total Cycles', value: stats.totalCycles, color: 'bg-primary' },
+          { label: 'Total Periods', value: stats.totalCycles, color: 'bg-primary' },
           { label: 'Avg. Participation', value: stats.avgParticipation, color: 'bg-amber-500' },
           { label: 'Highest Avg. Points', value: stats.highestAvg, color: 'bg-emerald-500' },
           { label: 'System Status', value: 'Live', color: 'bg-sidebar' },
@@ -265,7 +265,7 @@ const HistoryPage = () => {
         {filteredCycles.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 shadow-sm">
             <Calendar className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-            <p className="text-slate-500 font-bold">No ranking cycles found.</p>
+            <p className="text-slate-500 font-bold">No ranking periods found.</p>
             <p className="text-sm text-slate-400">Try adjusting your search terms.</p>
           </div>
         ) : (
@@ -288,7 +288,7 @@ const HistoryPage = () => {
                     </p>
                     <div className="flex items-center gap-3">
                       <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                        cycle.status === 'Active' ? 'text-primary bg-primary/10 border border-primary/20' : 'text-slate-500 bg-slate-100 border border-slate-200'
+                        cycle.status === 'Current' ? 'text-primary bg-primary/10 border border-primary/20' : 'text-slate-500 bg-slate-100 border border-slate-200'
                       }`}>
                         <CheckCircle2 size={12} />
                         {cycle.status}
@@ -333,7 +333,7 @@ const HistoryPage = () => {
                     {exportingId === cycle.cycle_id ? 'Exporting...' : 'Export'}
                   </button>
                   <Link to={`/history/${cycle.cycle_id}`} className="flex-1 lg:flex-none px-5 py-2.5 bg-sidebar text-white rounded-xl text-xs font-bold hover:bg-sidebar-dark shadow-sm transition-all group/btn flex items-center justify-center gap-2">
-                    View Rankings
+                    View Period Rankings
                     <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
                   </Link>
                 </div>
