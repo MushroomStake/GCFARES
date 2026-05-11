@@ -97,15 +97,29 @@ export default function ApplicationsListView({
                       <span className="badge badge-pending">Pending</span>
                     )}
                   </td>
-                  <td>
-                    <button className="review-btn" onClick={() => onReviewClick(application)}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <td style={{ display: 'flex', gap: '8px' }}>
+                    <button className="review-btn" onClick={() => onReviewClick(application)} title="Review Application">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
                         <rect x="3" y="3" width="7" height="7" rx="1"/>
                         <rect x="14" y="3" width="7" height="7" rx="1"/>
                         <rect x="3" y="14" width="7" height="7" rx="1"/>
                         <path d="M14 17h7M17 14v7"/>
                       </svg>
                     </button>
+                    {['HR_Completed', 'VPAA_Completed', 'For_Publishing', 'Published'].includes(application.status) && (
+                      <button 
+                        className="review-btn" 
+                        style={{ color: '#dc2626' }}
+                        onClick={() => window.open(`/perfeval?appId=${application.id}`, '_blank')}
+                        title="Download Evaluation PDF"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="7 10 12 15 17 10"></polyline>
+                          <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

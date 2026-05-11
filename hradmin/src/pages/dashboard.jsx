@@ -1,4 +1,6 @@
-﻿import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Papa from 'papaparse';
 import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './dashboard.css';
@@ -166,8 +168,8 @@ function StatCard({ iconClass, icon, label, value }) {
   );
 }
 
-// â”€â”€ History Item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function HistoryItem({ cycle }) {
+// ─── History Item ─────────────────────────────────────────
+function HistoryItem({ cycle, onReview, onExport }) {
   const formatDate = (timestamp) => {
     if (!timestamp) return 'Not set';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -181,15 +183,19 @@ function HistoryItem({ cycle }) {
   };
 
   return (
-    <div className="history-item">
+    <div 
+      className="history-item" 
+      onClick={() => onReview(cycle.cycle_id)}
+      style={{ cursor: 'pointer' }}
+    >
       <div className="history-badge">{getStatus()}</div>
       <div className="history-title">{cycle.title}</div>
       <div className="history-meta">
         Started: {formatDate(cycle.start_date)}<br />
         Deadline: {formatDate(cycle.deadline)}
       </div>
-      <div className="history-footer">
-        <span className="badge badge-published">Published</span>
+      <div className="history-footer" onClick={(e) => e.stopPropagation()}>
+        <button className="btn btn-outline-primary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => onExport(cycle.cycle_id, cycle.title)}>Export CSV</button>
       </div>
     </div>
   );
@@ -229,6 +235,7 @@ function ActionConfirmModal({ open, title, message, confirmLabel, confirmTone = 
 // â”€â”€ Dashboard Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // â”€â”€ Dashboard Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [currentCycle, setCurrentCycle] = useState(null);
   const [modalCycle, setModalCycle] = useState(null);
   const [focusDeadlineFields, setFocusDeadlineFields] = useState(false);
@@ -252,8 +259,103 @@ export default function Dashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [applications, setApplications] = useState([]);
+  const [selectedPastCycle, setSelectedPastCycle] = useState(null);
+  const [pastApplications, setPastApplications] = useState([]);
+  const [pastSearchTerm, setPastSearchTerm] = useState('');
+  const [pastDepartmentFilter, setPastDepartmentFilter] = useState('all');
 
   // importer is embedded in the dashboard UI now
+
+  const handleReviewCycle = async (cycleId) => {
+    const cycle = cycleHistory.find(c => c.cycle_id === cycleId);
+    if (!cycle) return;
+    
+    setSelectedPastCycle(cycle);
+    setLoading(true);
+    try {
+      const { data: appsData, error: appsError } = await supabase
+        .from('applications')
+        .select(`
+          application_id, status, hr_score, final_score,
+          faculty:faculty_id ( user_id, name_last, name_first, department_id, current_rank, departments ( department_name ) )
+        `)
+        .eq('cycle_id', cycleId)
+        .in('status', ['HR_Completed', 'VPAA_Completed', 'For_Publishing', 'Published']);
+      
+      if (appsError) throw appsError;
+      setPastApplications(appsData || []);
+    } catch (err) {
+      console.error('Error fetching past apps:', err);
+      alert('Failed to load past applications.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportCSV = async (cycleId, title) => {
+    try {
+      // Fetch applications for this cycle with faculty info
+      const { data: appsData, error: appsError } = await supabase
+        .from('applications')
+        .select(`
+          application_id, status, hr_score, final_score,
+          faculty:faculty_id ( user_id, name_last, name_first, department_id, current_rank, departments ( department_name ) )
+        `)
+        .eq('cycle_id', cycleId)
+        .in('status', ['HR_Completed', 'VPAA_Completed', 'For_Publishing', 'Published']);
+      
+      if (appsError) throw appsError;
+
+      // Format data for CSV
+      const csvData = (appsData || []).map(app => ({
+        'Faculty Last Name': app.faculty?.name_last || '',
+        'Faculty First Name': app.faculty?.name_first || '',
+        'Department': app.faculty?.departments?.department_name || app.faculty?.department_id || '',
+        'Status': app.status || '',
+        'HR Score': app.hr_score || 0,
+        'Final Score': app.final_score || 0,
+      }));
+
+      // Generate CSV
+      const csv = Papa.unparse(csvData);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${title.replace(/\s+/g, '_')}_Masterlist.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error exporting CSV:', err);
+      alert('Failed to export CSV: ' + err.message);
+    }
+  };
+
+  const handleExportSingleFacultyCSV = (app) => {
+    try {
+      const csvData = [{
+        'Faculty Last Name': app.faculty?.name_last || '',
+        'Faculty First Name': app.faculty?.name_first || '',
+        'Department': app.faculty?.departments?.department_name || app.faculty?.department_id || '',
+        'Status': app.status || '',
+        'HR Score': app.hr_score || 0,
+        'Final Score': app.final_score ?? app.hr_score ?? 0,
+      }];
+      const csv = Papa.unparse(csvData);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${app.faculty?.name_last || 'Faculty'}_${app.faculty?.name_first || 'Name'}_Evaluation.csv`.replace(/\s+/g, '_'));
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error exporting CSV:', err);
+      alert('Failed to export CSV: ' + err.message);
+    }
+  };
 
   const fetchData = async ({ showLoader = true } = {}) => {
     if (showLoader) {
@@ -582,6 +684,101 @@ export default function Dashboard() {
     );
   }
 
+  if (selectedPastCycle) {
+    const filteredPastApplications = pastApplications.filter(app => {
+      const matchesSearch = pastSearchTerm === '' ||
+        `${app.faculty?.name_last} ${app.faculty?.name_first}`.toLowerCase().includes(pastSearchTerm.toLowerCase());
+      
+      const deptName = app.faculty?.departments?.department_name || app.faculty?.department_id || '';
+      const matchesDept = pastDepartmentFilter === 'all' || 
+        String(deptName).toLowerCase().includes(pastDepartmentFilter.toLowerCase());
+
+      return matchesSearch && matchesDept;
+    });
+
+    return (
+      <div className="app">
+        <Sidebar />
+        <div className="main">
+          <div className="content">
+            <div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button className="btn btn-outline-primary" style={{ padding: '6px 12px' }} onClick={() => setSelectedPastCycle(null)}>← Back</button>
+              Ranking Period: {selectedPastCycle.title}
+            </div>
+            
+            <div className="toolbar" style={{ marginTop: '20px' }}>
+              <div className="toolbar-left">
+                <span className="toolbar-label">Completed Applications ({filteredPastApplications.length})</span>
+                <div className="search-wrap" style={{ marginLeft: '20px' }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input
+                    type="text"
+                    placeholder="Search faculty name"
+                    value={pastSearchTerm}
+                    onChange={(e) => setPastSearchTerm(e.target.value)}
+                  />
+                </div>
+                <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px', marginLeft: '12px', marginRight: '12px' }} onClick={() => handleExportCSV(selectedPastCycle.cycle_id, selectedPastCycle.title)}>
+                  Export CSV
+                </button>
+                <div className="filter-wrap">
+                  <select value={pastDepartmentFilter} onChange={(e) => setPastDepartmentFilter(e.target.value)}>
+                    <option value="all">All Departments</option>
+                    <option value="CCS">CCS</option>
+                    <option value="CEAS">CEAS</option>
+                    <option value="CBA">CBA</option>
+                    <option value="BSA">BSA</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {filteredPastApplications.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#666', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #e5e7eb', marginTop: '16px' }}>
+                <div style={{ fontSize: '16px', marginBottom: '8px' }}>No completed applications found for this cycle.</div>
+              </div>
+            ) : (
+              <div style={{ backgroundColor: 'white', borderRadius: '8px', border: '1px solid #e5e7eb', overflow: 'hidden', marginTop: '16px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                    <tr>
+                      <th style={{ padding: '12px 16px', fontWeight: '600', color: '#374151', fontSize: '13px' }}>No.</th>
+                      <th style={{ padding: '12px 16px', fontWeight: '600', color: '#374151', fontSize: '13px' }}>Name</th>
+                      <th style={{ padding: '12px 16px', fontWeight: '600', color: '#374151', fontSize: '13px' }}>Department</th>
+                      <th style={{ padding: '12px 16px', fontWeight: '600', color: '#374151', fontSize: '13px' }}>Current Rank</th>
+                      <th style={{ padding: '12px 16px', fontWeight: '600', color: '#374151', fontSize: '13px' }}>Final Score</th>
+                      <th style={{ padding: '12px 16px', fontWeight: '600', color: '#374151', fontSize: '13px' }}>Status</th>
+                      <th style={{ padding: '12px 16px', fontWeight: '600', color: '#374151', fontSize: '13px', textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPastApplications.map((app, index) => (
+                      <tr key={app.application_id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                        <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563' }}>{index + 1}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '14px', color: '#111827', fontWeight: '500' }}>{app.faculty?.name_last}, {app.faculty?.name_first}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563' }}>{app.faculty?.departments?.department_name || app.faculty?.department_id || 'N/A'}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563' }}>{app.faculty?.current_rank || 'N/A'}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '14px', color: '#111827', fontWeight: '500' }}>{app.final_score ?? app.hr_score ?? 'Not scored'}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '14px' }}>
+                          <span className="badge badge-reviewed" style={{ display: 'inline-block' }}>{app.status.replace(/_/g, ' ')}</span>
+                        </td>
+                        <td style={{ padding: '12px 16px', fontSize: '14px', textAlign: 'right' }}>
+                          <button className="btn btn-outline-primary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => handleExportSingleFacultyCSV(app)}>
+                            Export CSV
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <Sidebar />
@@ -621,7 +818,7 @@ export default function Dashboard() {
                   No previous periods found.
                 </p>
               ) : (
-                visibleHistory.map((cycle) => <HistoryItem key={cycle.cycle_id} cycle={cycle} />)
+                visibleHistory.map((cycle) => <HistoryItem key={cycle.cycle_id} cycle={cycle} onReview={handleReviewCycle} onExport={handleExportCSV} />)
               )}
             </div>
             {cycleHistory.length > historyPageSize && (

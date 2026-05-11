@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import Sidebar from '../components/sidenav';
 import './perfeval.css';
 import '../styles/layout.css';
@@ -323,6 +325,37 @@ export default function PerfEval() {
   const [evalData, setEvalData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const pdfRef = useRef(null);
+
+  const handleDownloadPDF = async () => {
+    const element = pdfRef.current;
+    if (!element) return;
+
+    try {
+      // Temporarily add a class for PDF styling if needed, or just let html2canvas do its work
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        logging: false
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      // If content is longer than one page, you might want to handle page breaks
+      // For a simple view, we just scale it to fit
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      
+      const fileName = currentFaculty?.name ? `${currentFaculty.name}_Evaluation.pdf` : 'Performance_Evaluation.pdf';
+      pdf.save(fileName.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.pdf');
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      alert('Failed to generate PDF. Please try again.');
+    }
+  };
 
   // Fetch evaluation data if applicationId is provided
   useEffect(() => {
@@ -440,12 +473,26 @@ export default function PerfEval() {
 
       <div className="main">
         <div className="content">
-          <div className="rk-card-header">
-            <span className="rk-card-title">Performance Evaluation</span>
-            <span className="rk-semester">1st Semester AY 2026–2027</span>
+          <div className="rk-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="rk-card-title">Performance Evaluation</span>
+              <span className="rk-semester" style={{ marginLeft: '12px' }}>1st Semester AY 2026–2027</span>
+            </div>
+            <button 
+              className="btn btn-primary" 
+              onClick={handleDownloadPDF}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Download PDF
+            </button>
           </div>
 
-          <div className="pe-body">
+          <div className="pe-body" ref={pdfRef}>
           <FacultyInfoCard faculty={currentFaculty} />
 
           <div className="pe-summary-row">

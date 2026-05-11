@@ -133,7 +133,6 @@ export default function Login() {
             </div>
             {error && <div className="login-error">{error}</div>}
             <button type="submit" className="btn-sign-in">Sign In</button>
-            <a href="#" className="forgot">Forgot Password?</a>
           </form>
 
         <p className="copyright">&copy; 2026 &nbsp;&nbsp; Gordon College — Olongapo City</p>

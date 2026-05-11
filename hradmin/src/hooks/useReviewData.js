@@ -131,6 +131,7 @@ export function useReviewData() {
       if (allCyclesError) throw allCyclesError;
 
       const activeCycle = (allCycles || [])[0] || null;
+
       if (!activeCycle) {
         console.warn('❌ No active cycle found');
         setCurrentCycle(null);
