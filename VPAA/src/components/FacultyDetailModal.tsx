@@ -14,6 +14,7 @@ import {
 import { motion } from 'framer-motion';
 import { supabase } from '../supabaseClient'; 
 import { RANKING_RUBRICS } from '../../rankingRubrics';
+import jsPDF from 'jspdf';
 
 interface FacultyDetailModalProps {
   faculty: any; 
@@ -499,46 +500,79 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
   const handleDownloadResult = () => {
     setDownloading(true);
     try {
-      const rows = [
-        ["Faculty Evaluation Result"],
-        [""],
-        ["Name:", fullName],
-        ["Department:", departmentName],
-        ["Present Rank:", fullUserData?.current_rank || appData?.current_rank_at_time || 'N/A'],
-        ["Nature of Appointment:", fullUserData?.nature_of_appointment || 'Permanent'],
-        [""],
-        ["--- SCORE BREAKDOWN ---"],
-        ["Area", "Max Points", "Points Earned"],
-        ...areas.map(area => [
-          `"${area.title}"`,
-          area.max, 
-          area.current
-        ]),
-        [""],
-        ["TOTAL POINTS:", "", totalPoints.toFixed(2)],
-        [""],
-        ["--- QUALIFICATIONS ---"],
-        ["Experience:", qualExperience],
-        ["Degree:", qualDegree],
-        ["Teaching Experience:", qualTeaching],
-        ["Research Output:", qualResearch],
-        ["Eligibility:", qualEligibility],
+      const doc = new jsPDF();
+      let y = 20;
+
+      // Title
+      doc.setFontSize(18);
+      doc.text('Faculty Evaluation Result', 20, y);
+      y += 25;
+
+      // Faculty Info
+      doc.setFontSize(12);
+      doc.text(`Name: ${fullName}`, 20, y);
+      y += 15;
+      doc.text(`Department: ${departmentName}`, 20, y);
+      y += 15;
+      doc.text(`Present Rank: ${fullUserData?.current_rank || appData?.current_rank_at_time || 'N/A'}`, 20, y);
+      y += 15;
+      doc.text(`Nature of Appointment: ${fullUserData?.nature_of_appointment || 'Permanent'}`, 20, y);
+      y += 25;
+
+      // Score Breakdown
+      doc.setFontSize(14);
+      doc.text('SCORE BREAKDOWN', 20, y);
+      y += 20;
+
+      // Table Header
+      doc.setFontSize(10);
+      doc.text('Area', 20, y);
+      doc.text('Max Points', 120, y);
+      doc.text('Points Earned', 160, y);
+      y += 15;
+
+      // Areas
+      areas.forEach(area => {
+        // Wrap long area titles
+        const titleLines = doc.splitTextToSize(area.title, 90);
+        doc.text(titleLines, 20, y);
+        const titleHeight = titleLines.length * 5;
+        doc.text(area.max.toFixed(2), 120, y);
+        doc.text(area.current.toFixed(2), 160, y);
+        y += Math.max(12, titleHeight + 5);
+      });
+
+      y += 15;
+
+      // Total Points
+      doc.setFontSize(12);
+      doc.text(`TOTAL POINTS: ${totalPoints.toFixed(2)}`, 20, y);
+      y += 25;
+
+      // Qualifications
+      doc.setFontSize(14);
+      doc.text('QUALIFICATIONS', 20, y);
+      y += 20;
+
+      doc.setFontSize(10);
+      const qualifications = [
+        `Experience: ${qualExperience}`,
+        `Degree: ${qualDegree}`,
+        `Teaching Experience: ${qualTeaching}`,
+        `Research Output: ${qualResearch}`,
+        `Eligibility: ${qualEligibility}`,
       ];
 
-      const csvContent = rows.map(e => e.join(",")).join("\n");
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      qualifications.forEach(qual => {
+        const qualLines = doc.splitTextToSize(qual, 170);
+        doc.text(qualLines, 20, y);
+        y += qualLines.length * 5 + 7;
+      });
 
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `${fullName.replace(/\s+/g, '_')}_Evaluation.csv`);
-      document.body.appendChild(link);
-      link.click();
-      
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      // Save the PDF
+      doc.save(`${fullName.replace(/\s+/g, '_')}_Evaluation.pdf`);
     } catch (error) {
-      console.error("Error generating download", error);
+      console.error("Error generating PDF", error);
       alert("Failed to download file.");
     } finally {
       setDownloading(false);

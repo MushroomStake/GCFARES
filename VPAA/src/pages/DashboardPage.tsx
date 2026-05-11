@@ -448,39 +448,7 @@ const DashboardPage = () => {
         )}
       </section>
 
-      {/* System Notifications Section (Already highly responsive) */}
-      <section className="px-4 sm:px-0">
-        <div className="mb-4 sm:mb-6">
-          <h3 className="text-base sm:text-lg font-bold text-sidebar">System Notifications</h3>
-          <p className="text-xs text-slate-500">Latest alerts and updates from the portal</p>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="divide-y divide-slate-100">
-            {activities.length > 0 ? activities.map((activity) => (
-              <div key={activity.id} className={`p-4 hover:bg-slate-50 transition-colors flex justify-between items-center gap-4 ${!activity.isRead ? 'bg-primary/5' : ''}`}>
-                <div className="flex-1">
-                  <h5 className="text-sm font-bold text-slate-800">{activity.user}</h5>
-                  <p className={`text-xs sm:text-[13px] font-medium mt-1 leading-snug ${!activity.isRead ? 'text-primary' : 'text-slate-600'}`}>
-                    {activity.action}
-                  </p>
-                  <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1">{activity.time}</p>
-                </div>
-                {!activity.isRead && (
-                  <div className="bg-primary/10 text-primary p-2 rounded-full shrink-0">
-                    <BellRing size={16} />
-                  </div>
-                )}
-              </div>
-            )) : (
-              <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
-                <ActivityIcon size={24} className="opacity-20" />
-                No recent notifications recorded.
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+    
 
       {/* Confirmation Modal */}
       {cycleToSubmit && (
