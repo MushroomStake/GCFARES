@@ -497,83 +497,229 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
     ? (Array.isArray(deptData) ? deptData[0]?.department_name : deptData.department_name) 
     : 'Not specified';
 
-  const handleDownloadResult = () => {
+  const handleDownloadResult = async () => {
     setDownloading(true);
     try {
-      const doc = new jsPDF();
-      let y = 20;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 35;
+      const contentWidth = pageWidth - 2 * margin;
+      let y = 25;
 
-      // Title
+      // Fetch cycle/period info if available
+      let periodLabel = '';
+      try {
+        if (appData?.cycle_id) {
+          const { data: cycleData } = await supabase
+            .from('ranking_cycles')
+            .select('title, semester, year')
+            .eq('cycle_id', appData.cycle_id)
+            .single();
+          if (cycleData) {
+            const year = cycleData.year ? String(cycleData.year) : '';
+            const semester = cycleData.semester ? String(cycleData.semester) : '';
+            periodLabel = `${semester} • AY ${year}`.toUpperCase();
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch cycle info for PDF header', e);
+      }
+
+      // Load GC logo from public assets
+      const logoUrl = '/assets/gc-logo.png';
+      let logoDataUrl: string | null = null;
+      try {
+        const resp = await fetch(logoUrl);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          logoDataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result));
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to load logo for PDF', e);
+      }
+
+      // === HEADER SECTION ===
+      if (logoDataUrl) {
+        const imgProps = { width: 55, height: 55 };
+        const imgX = (pageWidth - imgProps.width) / 2;
+        doc.addImage(logoDataUrl, 'PNG', imgX, y, imgProps.width, imgProps.height);
+        y += imgProps.height + 20;
+      }
+
+      // College name (main title)
       doc.setFontSize(18);
-      doc.text('Faculty Evaluation Result', 20, y);
-      y += 25;
+      doc.setFont(undefined, 'bold');
+      doc.text('GORDON COLLEGE', pageWidth / 2, y, { align: 'center' });
+      y += 24;
 
-      // Faculty Info
+      // Period label
+      if (periodLabel) {
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        doc.text(periodLabel, pageWidth / 2, y, { align: 'center' });
+        y += 14;
+      }
+
+      // Document title (centered, formal)
       doc.setFontSize(12);
-      doc.text(`Name: ${fullName}`, 20, y);
-      y += 15;
-      doc.text(`Department: ${departmentName}`, 20, y);
-      y += 15;
-      doc.text(`Present Rank: ${fullUserData?.current_rank || appData?.current_rank_at_time || 'N/A'}`, 20, y);
-      y += 15;
-      doc.text(`Nature of Appointment: ${fullUserData?.nature_of_appointment || 'Permanent'}`, 20, y);
-      y += 25;
+      doc.setFont(undefined, 'bold');
+      doc.text('FACULTY EVALUATION REPORT', pageWidth / 2, y, { align: 'center' });
+      y += 22;
 
-      // Score Breakdown
-      doc.setFontSize(14);
-      doc.text('SCORE BREAKDOWN', 20, y);
-      y += 20;
+      // Decorative line separator
+      doc.setDrawColor(80);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 18;
 
-      // Table Header
+      // === APPLICANT INFORMATION SECTION ===
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'bold');
+      doc.text('APPLICANT INFORMATION', margin, y);
+      y += 16;
+
+      doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
-      doc.text('Area', 20, y);
-      doc.text('Max Points', 120, y);
-      doc.text('Points Earned', 160, y);
-      y += 15;
+      // Fix name casing: capitalize first letter of last name, keep first name as-is
+      const lastNameProper = lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase();
+      const applicantLabel = `${lastNameProper}, ${firstName}${fullUserData?.name_middle ? ' ' + fullUserData.name_middle : ''}`.trim();
+      doc.text(`Name: ${applicantLabel}`, margin + 12, y);
+      y += 12;
+      doc.text(`Position: ${fullUserData?.current_rank || appData?.current_rank_at_time || 'N/A'}`, margin + 12, y);
+      y += 12;
+      doc.text(`Nature of Appointment: ${fullUserData?.nature_of_appointment || 'Permanent'}`, margin + 12, y);
+      y += 22;
 
-      // Areas
-      areas.forEach(area => {
-        // Wrap long area titles
-        const titleLines = doc.splitTextToSize(area.title, 90);
-        doc.text(titleLines, 20, y);
-        const titleHeight = titleLines.length * 5;
-        doc.text(area.max.toFixed(2), 120, y);
-        doc.text(area.current.toFixed(2), 160, y);
-        y += Math.max(12, titleHeight + 5);
+      // === SCORING SECTION ===
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.text('EVALUATION SCORES BY AREA', margin, y);
+      y += 18;
+
+      // Table setup
+      const tableLeft = margin;
+      const tableTop = y;
+      const tableWidth = contentWidth;
+      const colAreaWidth = tableWidth * 0.55;
+      const colScoreWidth = tableWidth * 0.15;
+      const colMaxWidth = tableWidth * 0.15;
+      const colExcessWidth = tableWidth * 0.15;
+
+      const cellPadding = 5;
+      const rowHeight = 20;
+
+      // Draw table header
+      doc.setDrawColor(80);
+      doc.setLineWidth(1);
+      doc.rect(tableLeft, y, tableWidth, rowHeight);
+
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(10);
+      const headerVerticalCenter = y + rowHeight / 2 + 1.5;
+      doc.text('Area', tableLeft + cellPadding, headerVerticalCenter, { align: 'left' });
+      doc.text('Score', tableLeft + colAreaWidth + colScoreWidth / 2, headerVerticalCenter, { align: 'center' });
+      doc.text('Max', tableLeft + colAreaWidth + colScoreWidth + colMaxWidth / 2, headerVerticalCenter, { align: 'center' });
+      doc.text('Excess', tableLeft + colAreaWidth + colScoreWidth + colMaxWidth + colExcessWidth / 2, headerVerticalCenter, { align: 'center' });
+
+      // Draw column separators in header
+      doc.setLineWidth(0.5);
+      doc.line(tableLeft + colAreaWidth, y, tableLeft + colAreaWidth, y + rowHeight);
+      doc.line(tableLeft + colAreaWidth + colScoreWidth, y, tableLeft + colAreaWidth + colScoreWidth, y + rowHeight);
+      doc.line(tableLeft + colAreaWidth + colScoreWidth + colMaxWidth, y, tableLeft + colAreaWidth + colScoreWidth + colMaxWidth, y + rowHeight);
+
+      y += rowHeight;
+
+      // Draw area rows with proper table structure
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(9.5);
+
+      areas.forEach((area) => {
+        const areaTitle = area.title || 'Area';
+        const score = Number(area.current || 0);
+        const max = Number(area.max || 0);
+        const excess = Math.max(0, score - max);
+
+        // Split area title
+        const titleLines = doc.splitTextToSize(areaTitle, colAreaWidth - 2 * cellPadding);
+        const actualRowHeight = Math.max(rowHeight, titleLines.length * 10 + 6);
+
+        // Draw row borders
+        doc.setDrawColor(150);
+        doc.setLineWidth(0.5);
+        doc.rect(tableLeft, y, tableWidth, actualRowHeight);
+        doc.line(tableLeft + colAreaWidth, y, tableLeft + colAreaWidth, y + actualRowHeight);
+        doc.line(tableLeft + colAreaWidth + colScoreWidth, y, tableLeft + colAreaWidth + colScoreWidth, y + actualRowHeight);
+        doc.line(tableLeft + colAreaWidth + colScoreWidth + colMaxWidth, y, tableLeft + colAreaWidth + colScoreWidth + colMaxWidth, y + actualRowHeight);
+
+        // Calculate vertical center - adjusted for better centering
+        const cellVerticalCenter = y + actualRowHeight / 2 + 1.5;
+
+        // Draw content - vertically centered
+        doc.text(titleLines, tableLeft + cellPadding, cellVerticalCenter - (titleLines.length - 1) * 4.5, { align: 'left' });
+        doc.text(score.toFixed(2), tableLeft + colAreaWidth + colScoreWidth / 2, cellVerticalCenter, { align: 'center' });
+        doc.text(max.toFixed(2), tableLeft + colAreaWidth + colScoreWidth + colMaxWidth / 2, cellVerticalCenter, { align: 'center' });
+        doc.text(excess > 0 ? `+${excess.toFixed(2)}` : '—', tableLeft + colAreaWidth + colScoreWidth + colMaxWidth + colExcessWidth / 2, cellVerticalCenter, { align: 'center' });
+
+        y += actualRowHeight;
       });
 
-      y += 15;
+      // Total row
+      doc.setDrawColor(80);
+      doc.setLineWidth(1.5);
+      doc.rect(tableLeft, y, tableWidth, rowHeight);
 
-      // Total Points
-      doc.setFontSize(12);
-      doc.text(`TOTAL POINTS: ${totalPoints.toFixed(2)}`, 20, y);
-      y += 25;
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(10.5);
+      const totalScore = areas.reduce((s, a) => s + Number(a.current || 0), 0);
+      const totalVerticalCenter = y + rowHeight / 2 + 1.5;
+      doc.text('TOTAL POINTS', tableLeft + cellPadding, totalVerticalCenter, { align: 'left' });
+      doc.text(totalScore.toFixed(2), tableLeft + colAreaWidth + colScoreWidth / 2, totalVerticalCenter, { align: 'center' });
 
-      // Qualifications
-      doc.setFontSize(14);
-      doc.text('QUALIFICATIONS', 20, y);
-      y += 20;
+      y += rowHeight + 20;
 
+      // === QUALIFICATIONS SECTION ===
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.text('QUALIFICATION SUMMARY', margin, y);
+      y += 18;
+
+      doc.setFont(undefined, 'normal');
       doc.setFontSize(10);
-      const qualifications = [
-        `Experience: ${qualExperience}`,
-        `Degree: ${qualDegree}`,
-        `Teaching Experience: ${qualTeaching}`,
-        `Research Output: ${qualResearch}`,
-        `Eligibility: ${qualEligibility}`,
+      const quals = [
+        { label: 'Experience', value: qualExperience },
+        { label: 'Degree', value: qualDegree },
+        { label: 'Teaching Performance', value: qualTeaching },
+        { label: 'Research Output', value: qualResearch },
+        { label: 'Eligibility', value: qualEligibility },
       ];
 
-      qualifications.forEach(qual => {
-        const qualLines = doc.splitTextToSize(qual, 170);
-        doc.text(qualLines, 20, y);
-        y += qualLines.length * 5 + 7;
+      quals.forEach(q => {
+        const labelWidth = 130;
+        doc.setFont(undefined, 'bold');
+        doc.text(`${q.label}:`, margin + 12, y);
+        doc.setFont(undefined, 'normal');
+        const valueLines = doc.splitTextToSize(q.value, contentWidth - labelWidth - 30);
+        doc.text(valueLines, margin + 12 + labelWidth, y);
+        y += Math.max(13, valueLines.length * 13) + 8;
       });
 
-      // Save the PDF
-      doc.save(`${fullName.replace(/\s+/g, '_')}_Evaluation.pdf`);
+      // === FOOTER ===
+      y += 12;
+      doc.setFontSize(8);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(100);
+      doc.text('This report is officially issued and contains the evaluation scores for the faculty applicant.', pageWidth / 2, pageHeight - 14, { align: 'center' });
+      doc.setTextColor(0);
+
+      // Save PDF
+      doc.save(`${lastNameProper}_${firstName}_Evaluation.pdf`);
     } catch (error) {
-      console.error("Error generating PDF", error);
-      alert("Failed to download file.");
+      console.error('Error generating PDF', error);
+      alert('Failed to download file.');
     } finally {
       setDownloading(false);
     }

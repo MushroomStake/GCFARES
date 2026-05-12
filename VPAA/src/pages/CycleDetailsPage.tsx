@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, Search, Filter, CheckCircle2, User, Loader2, X } from 'lucide-react';
 import { supabase } from '../supabaseClient'; 
@@ -43,6 +43,39 @@ const CycleDetailsPage = () => {
 
   const [isFacultyModalOpen, setIsFacultyModalOpen] = useState(false);
   const [selectedFaculty, setSelectedFaculty] = useState<RankingEntry | null>(null);
+  const fetchCycleDetailsRef = useRef<null | ((silent?: boolean) => Promise<void>)>(null);
+
+  const normalizeStatus = (value: unknown) => String(value || '').trim().toLowerCase();
+
+  const getDepartmentCode = (department: string) => {
+    const normalizedDepartment = String(department || '').trim();
+    if (!normalizedDepartment) return 'N/A';
+
+    const knownCodes: Record<string, string> = {
+      'College of Business Administration': 'CBA',
+      'College of Computer Studies': 'CCS',
+      'College of Education': 'COED',
+      'College of Engineering and Architecture': 'CEA',
+      'College of Hospitality and Tourism Management': 'CHTM',
+      'College of Arts and Sciences': 'CAS',
+      'College of Nursing': 'CN',
+      'School of Law': 'SOL',
+      'School of Medicine': 'SOM',
+    };
+
+    if (knownCodes[normalizedDepartment]) {
+      return knownCodes[normalizedDepartment];
+    }
+
+    const code = normalizedDepartment
+      .split(/\s+/)
+      .map((word) => word.replace(/[^A-Za-z]/g, ''))
+      .filter((word) => word && !['of', 'and', 'the', 'for', 'in'].includes(word.toLowerCase()))
+      .map((word) => word[0]?.toUpperCase())
+      .join('');
+
+    return code || normalizedDepartment;
+  };
 
   const [cycle, setCycle] = useState<CycleState>({
     title: '',
@@ -56,11 +89,11 @@ const CycleDetailsPage = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const fetchCycleDetails = async () => {
+    const fetchCycleDetails = async (silent = false) => {
       if (!id) return;
       
       try {
-        setLoading(true);
+        if (!silent) setLoading(true);
         
         // 1. Fetch period details
         const { data: cycleData, error: cycleError } = await supabase
@@ -71,7 +104,7 @@ const CycleDetailsPage = () => {
         
         if (cycleError || !cycleData) {
           console.error("Cycle not found or error fetching:", cycleError);
-          if (isMounted) setLoading(false);
+          if (isMounted && !silent) setLoading(false);
           return;
         }
         
@@ -89,25 +122,30 @@ const CycleDetailsPage = () => {
               )
             )
           `)
-          .eq('cycle_id', id);
+          .eq('cycle_id', id)
+          .not('status', 'ilike', '%draft%');
         
         if (appsError) throw appsError;
+
+        const visibleApps = (appsData || []).filter((appData: any) => normalizeStatus(appData.status) !== 'draft');
 
         let totalScore = 0;
         let completedCount = 0;
         let underReviewCount = 0;
         let pendingCount = 0;
 
-        const resolvedRankings: RankingEntry[] = (appsData || []).map((appData: any) => {
+        const resolvedRankings: RankingEntry[] = visibleApps.map((appData: any) => {
           const score = Number(appData.hr_score) || 0;
           totalScore += score;
           
-          const statusLower = (appData.status || '').toLowerCase();
+          const statusLower = normalizeStatus(appData.status);
           
-          if (['approved_unpublished', 'published', 'approved'].includes(statusLower)) {
+          if (['approved_unpublished', 'published', 'approved', 'vpaa_completed'].includes(statusLower)) {
             completedCount++;
-          } else if (['pending_vpaa', 'under_review'].includes(statusLower)) {
+          } else if (['pending_vpaa', 'under_review', 'reviewing'].includes(statusLower)) {
             underReviewCount++;
+          } else if (statusLower === 'hr_completed') {
+            pendingCount++;
           } else {
             pendingCount++;
           }
@@ -140,7 +178,7 @@ const CycleDetailsPage = () => {
         });
         
         resolvedRankings.sort((a, b) => b.points - a.points);
-        const totalFaculty = appsData ? appsData.length : 0;
+        const totalFaculty = visibleApps.length;
 
         // Expanded logic to match what constitutes an active period
         const isCycleActive = ['open', 'submissions_closed', 'finished'].includes(cycleData.status);
@@ -166,14 +204,32 @@ const CycleDetailsPage = () => {
       } catch (error) {
         console.error("Error fetching cycle details from Supabase:", error);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted && !silent) setLoading(false);
       }
     };
 
+    fetchCycleDetailsRef.current = fetchCycleDetails;
+
     fetchCycleDetails();
+
+    const applicationsChannel = supabase
+      .channel(`cycle-details-applications-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications', filter: `cycle_id=eq.${id}` }, () => {
+        void fetchCycleDetails(true);
+      })
+      .subscribe();
+
+    const cyclesChannel = supabase
+      .channel(`cycle-details-cycle-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ranking_cycles', filter: `cycle_id=eq.${id}` }, () => {
+        void fetchCycleDetails(true);
+      })
+      .subscribe();
 
     return () => {
       isMounted = false;
+      supabase.removeChannel(applicationsChannel);
+      supabase.removeChannel(cyclesChannel);
     };
   }, [id]);
 
@@ -182,7 +238,7 @@ const CycleDetailsPage = () => {
     const normalizedStatus = status.toLowerCase();
     const formattedLabel = status.replace(/_/g, ' ');
 
-    if (['approved_unpublished', 'published', 'approved', 'finished'].includes(normalizedStatus)) {
+    if (['approved_unpublished', 'published', 'approved', 'finished', 'vpaa_completed'].includes(normalizedStatus)) {
       return { label: formattedLabel, classes: 'bg-emerald-50 text-emerald-700 border border-emerald-200', icon: true };
     }
     if (['pending_vpaa', 'under_review', 'reviewing'].includes(normalizedStatus)) {
@@ -312,12 +368,12 @@ const CycleDetailsPage = () => {
            </div>
         </div>
         <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Total & Avg Points</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Pending Faculty</p>
           <div className="flex items-end gap-2">
-            <h4 className="text-2xl font-bold text-sidebar">{cycle.stats.totalPoints}</h4>
-            <p className="text-xs text-slate-400 mb-1">Total</p>
+            <h4 className="text-2xl font-bold text-sidebar">{cycle.stats.pending}</h4>
+            <p className="text-xs text-slate-400 mb-1">HR Completed</p>
           </div>
-          <p className="text-[11px] font-semibold text-primary mt-1">Avg: {cycle.stats.avgPoints} pts/faculty</p>
+          <p className="text-[11px] font-semibold text-primary mt-1">Ready for VPAA review</p>
         </div>
       </div>
 
@@ -399,7 +455,7 @@ const CycleDetailsPage = () => {
                           <span className="text-sm font-bold text-slate-800">{faculty.name}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-xs font-semibold text-slate-500">{faculty.department}</td>
+                      <td className="px-6 py-4 text-xs font-semibold text-slate-500" title={faculty.department}>{getDepartmentCode(faculty.department)}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <progress
@@ -450,13 +506,13 @@ const CycleDetailsPage = () => {
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Department</label>
                 <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} title="Filter by department" aria-label="Filter by department" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
-                  {uniqueDepartments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                  {uniqueDepartments.map(dept => <option key={dept} value={dept}>{dept === 'All' ? 'All Departments' : getDepartmentCode(dept)}</option>)}
                 </select>
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Application Status</label>
                 <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Filter by application status" aria-label="Filter by application status" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
-                  {uniqueStatuses.map(status => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}
+                  {uniqueStatuses.map(status => <option key={status} value={status}>{status === 'All' ? 'All Statuses' : String(status).replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
             </div>
@@ -470,7 +526,10 @@ const CycleDetailsPage = () => {
       {isFacultyModalOpen && selectedFaculty && (
         <FacultyDetailModal 
           faculty={selectedFaculty} 
-          onClose={handleCloseFacultyModal} 
+          onClose={handleCloseFacultyModal}
+          onStatusUpdate={() => {
+              void fetchCycleDetailsRef.current?.(true);
+          }}
         />
       )}
     </div>

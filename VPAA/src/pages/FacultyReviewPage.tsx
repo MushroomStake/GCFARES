@@ -116,15 +116,55 @@ const getApplicationScore = (appData: any, computedFallback: number = 0) => {
   return Number(appData.hr_score ?? appData.display_score ?? appData.vpaa_points ?? appData.total_score ?? appData.total_points ?? computedFallback ?? 0);
 };
 
+const getDepartmentCode = (department: string) => {
+  const normalizedDepartment = String(department || '').trim();
+  if (!normalizedDepartment) return 'N/A';
+
+  const knownCodes: Record<string, string> = {
+    'College of Business Administration': 'CBA',
+    'College of Computer Studies': 'CCS',
+    'College of Education': 'COED',
+    'College of Engineering and Architecture': 'CEA',
+    'College of Hospitality and Tourism Management': 'CHTM',
+    'College of Arts and Sciences': 'CAS',
+    'College of Nursing': 'CN',
+    'School of Law': 'SOL',
+    'School of Medicine': 'SOM',
+  };
+
+  if (knownCodes[normalizedDepartment]) {
+    return knownCodes[normalizedDepartment];
+  }
+
+  const code = normalizedDepartment
+    .split(/\s+/)
+    .map((word) => word.replace(/[^A-Za-z]/g, ''))
+    .filter((word) => word && !['of', 'and', 'the', 'for', 'in'].includes(word.toLowerCase()))
+    .map((word) => word[0]?.toUpperCase())
+    .join('');
+
+  return code || normalizedDepartment;
+};
+
+type ActivePeriodInfo = {
+  title: string;
+  semester: string;
+  year: string;
+  status: string;
+};
+
 const FacultyReviewPage = () => {
   const [facultyData, setFacultyData] = useState<Faculty[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFaculty, setSelectedFaculty] = useState<Faculty | null>(null);
+  const [activePeriod, setActivePeriod] = useState<ActivePeriodInfo | null>(null);
   
   // Search and Filter states
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDepartment, setSelectedDepartment] = useState("All");
+  const [facultyPage, setFacultyPage] = useState(1);
+  const facultyPageSize = 10;
 
   useEffect(() => {
     let mounted = true;
@@ -137,7 +177,7 @@ const FacultyReviewPage = () => {
         let activeCycleId = null;
         const { data: cycleSnap, error: cycleError } = await supabase
           .from('ranking_cycles')
-          .select('cycle_id, status, created_at')
+          .select('cycle_id, status, created_at, title, semester, year')
           .in('status', ['open', 'submissions_closed', 'finished'])
           .order('created_at', { ascending: false })
           .limit(1);
@@ -146,21 +186,34 @@ const FacultyReviewPage = () => {
 
         if (cycleSnap && cycleSnap.length > 0) {
           activeCycleId = cycleSnap[0].cycle_id;
+          setActivePeriod({
+            title: cycleSnap[0].title || 'Current Period',
+            semester: cycleSnap[0].semester || 'N/A',
+            year: String(cycleSnap[0].year || 'N/A'),
+            status: String(cycleSnap[0].status || 'open').replace(/_/g, ' '),
+          });
         } else {
           // fallback: pick the most recently created cycle
           const { data: recent, error: recentError } = await supabase
             .from('ranking_cycles')
-            .select('cycle_id, status, created_at')
+            .select('cycle_id, status, created_at, title, semester, year')
             .order('created_at', { ascending: false })
             .limit(1);
           if (recentError) throw recentError;
           if (recent && recent.length > 0) {
             activeCycleId = recent[0].cycle_id;
+            setActivePeriod({
+              title: recent[0].title || 'Current Period',
+              semester: recent[0].semester || 'N/A',
+              year: String(recent[0].year || 'N/A'),
+              status: String(recent[0].status || 'open').replace(/_/g, ' '),
+            });
           }
         }
 
         if (!activeCycleId) {
           console.warn('No ranking period available to load applications');
+          setActivePeriod(null);
           if (mounted) setFacultyData([]);
           if (!silent) setLoading(false);
           return;
@@ -170,7 +223,8 @@ const FacultyReviewPage = () => {
         let { data: appsSnap, error: appsError } = await supabase
           .from('applications')
           .select('*')
-          .eq('cycle_id', activeCycleId);
+          .eq('cycle_id', activeCycleId)
+          .not('status', 'ilike', '%draft%');
 
         if (appsError) throw appsError;
 
@@ -191,7 +245,8 @@ const FacultyReviewPage = () => {
             const { data: fallbackApps, error: fallbackError } = await supabase
               .from('applications')
               .select('*')
-              .eq('cycle_id', fallbackCycleId);
+              .eq('cycle_id', fallbackCycleId)
+              .not('status', 'ilike', '%draft%');
             if (!fallbackError) {
               appsSnap = fallbackApps || [];
               activeCycleId = fallbackCycleId;
@@ -420,6 +475,17 @@ const FacultyReviewPage = () => {
     return matchesSearch && matchesDept;
   });
 
+  const totalFacultyPages = Math.max(1, Math.ceil(filteredFaculty.length / facultyPageSize));
+  const safeFacultyPage = Math.min(facultyPage, totalFacultyPages);
+  const facultyPageStart = (safeFacultyPage - 1) * facultyPageSize;
+  const paginatedFaculty = filteredFaculty.slice(facultyPageStart, facultyPageStart + facultyPageSize);
+
+  useEffect(() => {
+    if (facultyPage > totalFacultyPages) {
+      setFacultyPage(totalFacultyPages);
+    }
+  }, [facultyPage, totalFacultyPages]);
+
   if (loading) {
     return (
       <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
@@ -431,6 +497,18 @@ const FacultyReviewPage = () => {
 
   return (
     <div className="space-y-8">
+      {activePeriod && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 mb-1">Current Active Period</p>
+            <h3 className="text-lg font-black text-slate-800">{activePeriod.title}</h3>
+          </div>
+          <div className="text-xs font-semibold text-emerald-800">
+            {activePeriod.semester} • AY {activePeriod.year} • {activePeriod.status}
+          </div>
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map((stat, idx) => (
@@ -476,7 +554,7 @@ const FacultyReviewPage = () => {
               >
                 {uniqueDepartments.map((dept) => (
                   <option key={dept} value={dept}>
-                    {dept === "All" ? "All Departments" : dept}
+                    {dept === "All" ? "All Departments" : getDepartmentCode(dept)}
                   </option>
                 ))}
               </select>
@@ -506,7 +584,7 @@ const FacultyReviewPage = () => {
                   </td>
                 </tr>
               ) : (
-                filteredFaculty.map((faculty) => (
+                paginatedFaculty.map((faculty) => (
                   <tr key={faculty.id} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="px-8 py-5 text-sm font-bold text-slate-400">#{faculty.ranking}</td>
                     <td className="px-8 py-5 text-[11px] font-black text-slate-700 tracking-tight">{faculty.name}</td>
@@ -523,12 +601,12 @@ const FacultyReviewPage = () => {
                       </div>
                     </td>
 
-                    <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.department}</td>
+                    <td className="px-8 py-5 text-[11px] font-bold text-slate-500" title={faculty.department}>{getDepartmentCode(faculty.department)}</td>
                     <td className="px-8 py-5 text-[11px] font-bold text-slate-500">{faculty.points}</td>
                     <td className="px-8 py-5">
                       {/* Dynamic Color Applied Here */}
-                      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${getStatusStyle(faculty.status)}`}>
-                        {faculty.status.replace(/_/g, ' ')}
+                      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border ${getStatusStyle(faculty.status)}`} title={faculty.status.replace(/_/g, ' ')}>
+                        {String(faculty.status || '').replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="px-8 py-5">
@@ -548,6 +626,35 @@ const FacultyReviewPage = () => {
             </tbody>
           </table>
         </div>
+
+        {filteredFaculty.length > facultyPageSize && (
+          <div className="border-t border-slate-100 bg-slate-50 px-8 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-xs font-medium text-slate-500">
+              Showing {facultyPageStart + 1}-{Math.min(facultyPageStart + facultyPageSize, filteredFaculty.length)} of {filteredFaculty.length} faculty records
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => setFacultyPage((page) => Math.max(1, page - 1))}
+                disabled={safeFacultyPage === 1}
+              >
+                Previous
+              </button>
+              <span className="text-xs font-semibold text-slate-500">
+                Page {safeFacultyPage} of {totalFacultyPages}
+              </span>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => setFacultyPage((page) => Math.min(totalFacultyPages, page + 1))}
+                disabled={safeFacultyPage === totalFacultyPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {isModalOpen && selectedFaculty && (

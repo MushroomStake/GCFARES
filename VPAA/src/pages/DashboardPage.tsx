@@ -28,12 +28,14 @@ const DashboardPage = () => {
   const [currentPeriod, setCurrentPeriod] = useState<Cycle | null>(null);
   const [activePeriods, setActivePeriods] = useState<Cycle[]>([]);
   const [donePeriods, setDonePeriods] = useState<Cycle[]>([]);
+  const [donePeriodsPage, setDonePeriodsPage] = useState(1);
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   // New states for the submission process
   const [cycleToSubmit, setCycleToSubmit] = useState<Cycle | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const donePeriodsPageSize = 4;
 
   useEffect(() => {
     void fetchDashboardData();
@@ -84,6 +86,17 @@ const DashboardPage = () => {
       supabase.removeChannel(notificationSubscription);
     };
   }, []);
+
+  const totalDonePages = Math.max(1, Math.ceil(donePeriods.length / donePeriodsPageSize));
+  const safeDonePage = Math.min(donePeriodsPage, totalDonePages);
+  const doneStartIndex = (safeDonePage - 1) * donePeriodsPageSize;
+  const visibleDonePeriods = donePeriods.slice(doneStartIndex, doneStartIndex + donePeriodsPageSize);
+
+  useEffect(() => {
+    if (donePeriodsPage > totalDonePages) {
+      setDonePeriodsPage(totalDonePages);
+    }
+  }, [donePeriodsPage, totalDonePages]);
 
   const fetchDashboardData = async (silent = false) => {
     try {
@@ -383,7 +396,7 @@ const DashboardPage = () => {
           <div>
             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Completed Periods</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
-              {donePeriods.map((cycle) => (
+              {visibleDonePeriods.map((cycle) => (
                 <div 
                   key={cycle.id}
                   className="relative h-full p-5 sm:p-6 rounded-2xl border transition-all flex flex-col bg-slate-50 border-slate-200 hover:border-slate-300 hover:shadow-md"
@@ -438,6 +451,35 @@ const DashboardPage = () => {
                 </div>
               ))}
             </div>
+
+            {donePeriods.length > donePeriodsPageSize && (
+              <div className="mt-5 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-medium text-slate-500">
+                  Showing {doneStartIndex + 1}-{Math.min(doneStartIndex + donePeriodsPageSize, donePeriods.length)} of {donePeriods.length} completed periods
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setDonePeriodsPage((page) => Math.max(1, page - 1))}
+                    disabled={safeDonePage === 1}
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs font-semibold text-slate-500">
+                    Page {safeDonePage} of {totalDonePages}
+                  </span>
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setDonePeriodsPage((page) => Math.min(totalDonePages, page + 1))}
+                    disabled={safeDonePage === totalDonePages}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

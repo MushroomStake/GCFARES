@@ -21,13 +21,19 @@ const HistoryPage = () => {
   const [loading, setLoading] = useState(true);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyPageSize = 6;
   const [stats, setStats] = useState({
     totalCycles: 0,
     avgParticipation: '0',
     highestAvg: '0'
   });
 
+  const normalizeStatus = (value: unknown) => String(value || '').trim().toLowerCase();
+
   useEffect(() => {
+    let isMounted = true;
+
     const fetchHistoryData = async () => {
       try {
         setLoading(true);
@@ -37,14 +43,14 @@ const HistoryPage = () => {
           { data: appsData, error: appsError }
         ] = await Promise.all([
           supabase.from('ranking_cycles').select('*'),
-          supabase.from('applications').select('cycle_id, hr_score')
+          supabase.from('applications').select('cycle_id, hr_score, status').not('status', 'ilike', '%draft%')
         ]);
 
         if (cyclesError) throw cyclesError;
         if (appsError) throw appsError;
 
         const safeCyclesData = cyclesData || [];
-        const safeAppsData = appsData || [];
+        const safeAppsData = (appsData || []).filter((app) => normalizeStatus(app.status) !== 'draft');
         
         const fetchedCycles: CycleHistory[] = [];
         let highestAverage = 0;
@@ -83,21 +89,43 @@ const HistoryPage = () => {
 
         fetchedCycles.sort((a, b) => new Date(b.rawStartDate).getTime() - new Date(a.rawStartDate).getTime());
 
-        setCycles(fetchedCycles);
-        setStats({
-          totalCycles: fetchedCycles.length,
-          avgParticipation: fetchedCycles.length > 0 ? (safeAppsData.length / fetchedCycles.length).toFixed(1) : '0',
-          highestAvg: highestAverage.toFixed(1)
-        });
+        if (isMounted) {
+          setCycles(fetchedCycles);
+          setStats({
+            totalCycles: fetchedCycles.length,
+            avgParticipation: fetchedCycles.length > 0 ? (safeAppsData.length / fetchedCycles.length).toFixed(1) : '0',
+            highestAvg: highestAverage.toFixed(1)
+          });
+        }
         
       } catch (error) {
         console.error("Error fetching history:", error);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchHistoryData();
+
+    const cycleChannel = supabase
+      .channel('vpaa-history-cycles')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ranking_cycles' }, () => {
+        void fetchHistoryData();
+      })
+      .subscribe();
+
+    const applicationChannel = supabase
+      .channel('vpaa-history-applications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
+        void fetchHistoryData();
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(cycleChannel);
+      supabase.removeChannel(applicationChannel);
+    };
   }, []);
 
   const formatDate = (dateString: string | null) => {
@@ -117,14 +145,16 @@ const HistoryPage = () => {
 
       if (appsError) throw appsError;
 
-      if (!apps || apps.length === 0) {
+      const visibleApps = (apps || []).filter((app) => normalizeStatus(app.status) !== 'draft');
+
+      if (visibleApps.length === 0) {
         alert("No applications found for this cycle to export.");
         setExportingId(null);
         return;
       }
 
       // 2. Fetch relational data (Users, Departments, Positions) for mapping
-      const userIds = [...new Set(apps.map(a => a.faculty_id).filter(Boolean))];
+      const userIds = [...new Set(visibleApps.map(a => a.faculty_id).filter(Boolean))];
       
       const [
         { data: users },
@@ -142,7 +172,7 @@ const HistoryPage = () => {
       const posMap = new Map(positions?.map(p => [String(p.position_id), p.position_name]));
 
       // 3. Format the data for the CSV
-      const formattedData = apps.map(app => {
+      const formattedData = visibleApps.map(app => {
         const user = userMap.get(app.faculty_id);
         const facultyName = user ? `${user.name_last || ''}, ${user.name_first || ''}`.replace(/^, | ,$/g, '') : 'Unknown';
         const deptName = user?.department_id ? deptMap.get(String(user.department_id)) || 'N/A' : 'N/A';
@@ -207,6 +237,17 @@ const HistoryPage = () => {
     cycle.year.includes(searchTerm)
   );
 
+  const totalHistoryPages = Math.max(1, Math.ceil(filteredCycles.length / historyPageSize));
+  const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const historyStartIndex = (safeHistoryPage - 1) * historyPageSize;
+  const visibleCycles = filteredCycles.slice(historyStartIndex, historyStartIndex + historyPageSize);
+
+  useEffect(() => {
+    if (historyPage > totalHistoryPages) {
+      setHistoryPage(totalHistoryPages);
+    }
+  }, [historyPage, totalHistoryPages]);
+
   if (loading) {
     return (
       <div className="flex h-[80vh] items-center justify-center flex-col gap-4">
@@ -269,7 +310,7 @@ const HistoryPage = () => {
             <p className="text-sm text-slate-400">Try adjusting your search terms.</p>
           </div>
         ) : (
-          filteredCycles.map((cycle) => (
+              visibleCycles.map((cycle) => (
             <div 
               key={cycle.cycle_id}
               className="group bg-white p-6 rounded-2xl border border-slate-200 hover:border-primary/40 hover:shadow-md transition-all duration-300"
@@ -289,7 +330,7 @@ const HistoryPage = () => {
                     <div className="flex items-center gap-3">
                       <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full ${
                         cycle.status === 'Current' ? 'text-primary bg-primary/10 border border-primary/20' : 'text-slate-500 bg-slate-100 border border-slate-200'
-                      }`}>
+                      }`} title={cycle.status}>
                         <CheckCircle2 size={12} />
                         {cycle.status}
                       </span>
@@ -343,6 +384,35 @@ const HistoryPage = () => {
           ))
         )}
       </div>
+
+      {filteredCycles.length > historyPageSize && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+          <p className="text-xs font-medium text-slate-500">
+            Showing {historyStartIndex + 1}-{Math.min(historyStartIndex + historyPageSize, filteredCycles.length)} of {filteredCycles.length} periods
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+              disabled={safeHistoryPage === 1}
+            >
+              Previous
+            </button>
+            <span className="text-xs font-semibold text-slate-500">
+              Page {safeHistoryPage} of {totalHistoryPages}
+            </span>
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setHistoryPage((page) => Math.min(totalHistoryPages, page + 1))}
+              disabled={safeHistoryPage === totalHistoryPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
