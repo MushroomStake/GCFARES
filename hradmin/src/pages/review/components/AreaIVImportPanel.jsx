@@ -237,9 +237,7 @@ export default function AreaIVImportPanel({
   const [loadingRows, setLoadingRows] = useState(false);
   const [savingImport, setSavingImport] = useState(false);
   const [importError, setImportError] = useState('');
-  const [debugParsedRows, setDebugParsedRows] = useState([]);
-  const [debugRawRows, setDebugRawRows] = useState([]);
-  const [debugHeaderRow, setDebugHeaderRow] = useState(null);
+  const [sheetIssueModal, setSheetIssueModal] = useState(null);
   const [notice, setNotice] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [searchValue, setSearchValue] = useState('');
@@ -395,37 +393,13 @@ export default function AreaIVImportPanel({
 
     try {
       const rawRows = await parseSpreadsheet(file);
-      setDebugParsedRows((rawRows || []).slice(0, 10));
       const mappedRows = mapImportedRows(rawRows, applications, cycleId, file.name);
 
       if (mappedRows.length === 0) {
-        // Attempt to get the raw sheet arrays for debugging
-        try {
-          const rawArrays = await (async () => {
-            const lowerName = String(file.name || '').toLowerCase();
-            if (lowerName.endsWith('.csv')) {
-              const text = await file.text();
-              return Papa.parse(text, { skipEmptyLines: false, header: false }).data || [];
-            }
-            const buffer = await file.arrayBuffer();
-            const workbook = XLSX.read(buffer, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const sheet = workbook.Sheets[sheetName];
-            return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) || [];
-          })();
-
-          setDebugRawRows((rawArrays || []).slice(0, 10));
-          // if a header row was detected earlier in parseSpreadsheet, try to find it here
-          const hdr = (rawArrays || []).find((r, i) => {
-            if (!Array.isArray(r)) return false;
-            const norm = r.map((c) => normalizeKey(String(c || '')));
-            return norm.some((cell) => ['employee name','total average rate','average rate','employee','name','rate'].some(e => cell.includes(normalizeKey(e))));
-          });
-          setDebugHeaderRow(hdr || null);
-        } catch (dbgErr) {
-          // ignore
-        }
-
+        setSheetIssueModal({
+          title: 'Wrong sheet uploaded',
+          message: 'We could not detect the Employee Name and Total Average Rate columns. Please upload the correct Area IV evaluation file.',
+        });
         throw new Error('No valid rows were found. Make sure the file has Employee Name and Total Average Rate columns. Scroll down for detected headers and sample rows.');
       }
 
@@ -464,6 +438,12 @@ export default function AreaIVImportPanel({
       setImportRows(mappedRows);
       setNotice(`Imported ${mappedRows.length} row${mappedRows.length === 1 ? '' : 's'} from ${file.name}.`);
     } catch (error) {
+      if (/No valid rows were found/i.test(String(error?.message || ''))) {
+        setSheetIssueModal((current) => current || {
+          title: 'Wrong sheet uploaded',
+          message: 'The uploaded file does not look like an Area IV student evaluation sheet. Please choose the correct file and try again.',
+        });
+      }
       setImportError(error?.message || 'Failed to import the spreadsheet.');
     } finally {
       setSavingImport(false);
@@ -532,22 +512,31 @@ export default function AreaIVImportPanel({
 
       {notice && <div className="area-iv-notice">{notice}</div>}
       {importError && <div className="area-iv-error">{importError}</div>}
-      {importError && (debugParsedRows.length > 0 || debugRawRows.length > 0) && (
-        <div className="area-iv-debug">
-          <div style={{ marginTop: '10px', fontWeight: 700 }}>Debug: parsed rows (first 10)</div>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#f8fafc', padding: '8px', borderRadius: '6px' }}>{JSON.stringify(debugParsedRows, null, 2)}</pre>
-          {debugHeaderRow && (
-            <>
-              <div style={{ marginTop: '8px', fontWeight: 700 }}>Detected header row (approx)</div>
-              <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#f8fafc', padding: '8px', borderRadius: '6px' }}>{JSON.stringify(debugHeaderRow)}</pre>
-            </>
-          )}
-          {debugRawRows.length > 0 && (
-            <>
-              <div style={{ marginTop: '8px', fontWeight: 700 }}>Raw sheet rows (first 10)</div>
-              <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#f8fafc', padding: '8px', borderRadius: '6px' }}>{JSON.stringify(debugRawRows, null, 2)}</pre>
-            </>
-          )}
+      {sheetIssueModal && (
+        <div
+          className="area-iv-modal-backdrop"
+          onClick={() => setSheetIssueModal(null)}
+          style={{ zIndex: 10000 }}
+        >
+          <div
+            className="area-iv-modal"
+            onClick={(event) => event.stopPropagation()}
+            style={{ maxWidth: '560px' }}
+          >
+            <div className="area-iv-modal-search" style={{ borderBottom: '1px solid #e5e7eb' }}>
+              <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827' }}>{sheetIssueModal.title}</div>
+            </div>
+            <div className="area-iv-modal-body">
+              <div className="area-iv-empty" style={{ padding: '24px 8px', lineHeight: 1.6 }}>
+                {sheetIssueModal.message}
+              </div>
+            </div>
+            <div className="area-iv-modal-footer" style={{ justifyContent: 'flex-end' }}>
+              <button type="button" className="area-iv-close-button" onClick={() => setSheetIssueModal(null)}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

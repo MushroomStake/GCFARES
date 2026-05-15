@@ -85,6 +85,21 @@ export default function Review() {
       reviewData.setSavingAreaId(area.id);
 
       const isAreaIVPlaceholder = Number(area.area_id) === Number(areaIvAreaId) && String(area.id || '').startsWith('placeholder-');
+      let csvTotalAverageRate = null;
+
+      if (isAreaIVPlaceholder && reviewData.selectedApplication?.id && reviewData.currentCycle?.cycle_id) {
+        const { data: importedRows, error: importLookupError } = await supabase
+          .from('area_iv_student_evaluation_imports')
+          .select('total_average_rate')
+          .eq('cycle_id', reviewData.currentCycle.cycle_id)
+          .eq('matched_application_id', reviewData.selectedApplication.id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (importLookupError) throw importLookupError;
+
+        csvTotalAverageRate = importedRows?.[0]?.total_average_rate ?? null;
+      }
 
       if (isAreaIVPlaceholder && reviewData.selectedApplication?.id) {
         const { data: existingArea4Submission, error: existingError } = await supabase
@@ -98,24 +113,35 @@ export default function Review() {
         if (existingError) throw existingError;
 
         if (existingArea4Submission) {
+          const nextUpdate = { hr_points: parsedScore };
+
+          if (csvTotalAverageRate !== null && csvTotalAverageRate !== undefined) {
+            nextUpdate.csv_total_average_rate = csvTotalAverageRate;
+          }
+
           const { error: updateArea4Error } = await supabase
             .from('area_submissions')
-            .update({ hr_points: parsedScore })
+            .update(nextUpdate)
             .eq('submission_id', existingArea4Submission.submission_id);
 
           if (updateArea4Error) throw updateArea4Error;
         } else {
+          const insertPayload = {
+            application_id: reviewData.selectedApplication.id,
+            area_id: areaIvAreaId,
+            cycle_id: reviewData.currentCycle?.cycle_id,
+            file_path: null,
+            hr_points: parsedScore,
+            uploaded_at: new Date().toISOString(),
+          };
+
+          if (csvTotalAverageRate !== null && csvTotalAverageRate !== undefined) {
+            insertPayload.csv_total_average_rate = csvTotalAverageRate;
+          }
+
           const { error: insertArea4Error } = await supabase
             .from('area_submissions')
-            .insert({
-              application_id: reviewData.selectedApplication.id,
-              area_id: areaIvAreaId,
-              cycle_id: reviewData.currentCycle?.cycle_id,
-              file_path: null,
-              hr_points: parsedScore,
-              csv_total_average_rate: null,
-              uploaded_at: new Date().toISOString(),
-            });
+            .insert(insertPayload);
 
           if (insertArea4Error) throw insertArea4Error;
         }

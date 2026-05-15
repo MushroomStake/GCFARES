@@ -1182,6 +1182,7 @@ app.get("/review/submission-scoring/:submissionId", async (req, res) => {
 app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
   const { submissionId } = req.params;
   const { criteria, context } = req.body;
+  const AREA_IV_DB_ID = 7;
 
   if (!submissionId) {
     return res.status(400).json({ error: "submissionId is required" });
@@ -1280,6 +1281,25 @@ app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
         uploaded_at: new Date().toISOString(),
       };
 
+      if (Number(areaId) === AREA_IV_DB_ID && Number.isFinite(applicationId) && Number.isFinite(cycleId)) {
+        try {
+          const { data: importRows } = await supabase
+            .from("area_iv_student_evaluation_imports")
+            .select("total_average_rate")
+            .eq("cycle_id", cycleId)
+            .eq("matched_application_id", applicationId)
+            .order("created_at", { ascending: false })
+            .limit(1);
+
+          const importedRate = importRows?.[0]?.total_average_rate;
+          if (importedRate !== null && importedRate !== undefined) {
+            insertPayload.csv_total_average_rate = importedRate;
+          }
+        } catch (importErr) {
+          console.warn("Failed to backfill Area IV csv_total_average_rate on insert:", importErr);
+        }
+      }
+
       const inserted = await supabase
         .from("area_submissions")
         .insert(insertPayload)
@@ -1295,10 +1315,46 @@ app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
       return res.status(400).json({ error: submissionError?.message || "Submission not found" });
     }
 
+    let scoringSubmission = submission;
+
+    // Preserve/backfill Area IV CSV import average for resolved submissions when available.
+    if (
+      Number(submission.area_id) === AREA_IV_DB_ID
+      && (submission.csv_total_average_rate === null || submission.csv_total_average_rate === undefined)
+      && Number.isFinite(Number(submission.application_id))
+      && Number.isFinite(Number(submission.cycle_id))
+    ) {
+      try {
+        const { data: importRows } = await supabase
+          .from("area_iv_student_evaluation_imports")
+          .select("total_average_rate")
+          .eq("cycle_id", Number(submission.cycle_id))
+          .eq("matched_application_id", Number(submission.application_id))
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const importedRate = importRows?.[0]?.total_average_rate;
+        if (importedRate !== null && importedRate !== undefined) {
+          const { data: patchedSubmission, error: patchErr } = await supabase
+            .from("area_submissions")
+            .update({ csv_total_average_rate: importedRate })
+            .eq(submission?.submission_id != null ? "submission_id" : "id", submission?.submission_id != null ? submission.submission_id : submissionId)
+            .select("*")
+            .single();
+
+          if (!patchErr && patchedSubmission) {
+            scoringSubmission = patchedSubmission;
+          }
+        }
+      } catch (importErr) {
+        console.warn("Failed to backfill Area IV csv_total_average_rate on resolve:", importErr);
+      }
+    }
+
     const { data: area, error: areaError } = await supabase
       .from("areas")
       .select("*")
-      .eq("area_id", submission.area_id)
+      .eq("area_id", scoringSubmission.area_id)
       .single();
 
     if (areaError || !area) {
@@ -1306,7 +1362,7 @@ app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
     }
 
     const areaMaxPoints = Number(area.max_possible_points ?? area.maxPoints ?? area.max ?? 85);
-    const rubricCriteria = getAreaCriteria(Number(submission.area_id), area.area_name);
+    const rubricCriteria = getAreaCriteria(Number(scoringSubmission.area_id), area.area_name);
     const rubricByKey = new Map(rubricCriteria.map((criterion) => [criterion.label, criterion]));
 
     const rowsToUpsert = criteria.map((criterion) => {
@@ -1331,9 +1387,9 @@ app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
 
       return {
         submission_id: Number(submission.submission_id ?? submission.id),
-        application_id: Number(submission.application_id),
-        area_id: Number(submission.area_id),
-        part_id: submission.part_id,
+        application_id: Number(scoringSubmission.application_id),
+        area_id: Number(scoringSubmission.area_id),
+        part_id: scoringSubmission.part_id,
         criterion_key: rubric.label,
         criterion_label: rubric.label,
         criterion_title: criterion.title || rubric.title || rubric.label,
@@ -1374,13 +1430,13 @@ app.patch("/review/submission-scoring/:submissionId", async (req, res) => {
     const { data: updatedSubmission, error: submissionUpdateError } = await supabase
       .from("area_submissions")
       .update({ hr_points: totalScore })
-      .eq(submission?.submission_id != null ? "submission_id" : "id", submission?.submission_id != null ? submission.submission_id : submissionId)
+      .eq(scoringSubmission?.submission_id != null ? "submission_id" : "id", scoringSubmission?.submission_id != null ? scoringSubmission.submission_id : submissionId)
       .select("*")
       .single();
 
     if (submissionUpdateError) throw submissionUpdateError;
 
-    const applicationTotalScore = await updateApplicationHrScore(submission.application_id);
+    const applicationTotalScore = await updateApplicationHrScore(scoringSubmission.application_id);
 
     res.json({
       message: "Criteria scores saved successfully",
