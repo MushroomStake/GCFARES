@@ -1549,18 +1549,19 @@ export default function Dashboard() {
       if (cyclesError) throw cyclesError;
       console.log('All cycles found:', allCycles);
 
-      // Find the active cycle (open or submissions_closed, but not finished)
-      const openCycle = allCycles.find(c => c.status === 'open' || c.status === 'submissions_closed');
-      if (openCycle) {
-        setCurrentCycle(openCycle);
-      } else {
-        setCurrentCycle(null);
-      }
-
-      // History: closed cycles, sorted by created_at desc
-      const history = allCycles
-        .filter(c => c.status !== 'open')
+      const sortedCycles = (allCycles || [])
+        .slice()
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      // Find the active cycle by priority: open first, then submissions_closed.
+      const openCycle = sortedCycles.find((c) => String(c.status).trim() === 'open')
+        || sortedCycles.find((c) => String(c.status).trim() === 'submissions_closed')
+        || null;
+
+      setCurrentCycle(openCycle);
+
+      // History: all cycles except the currently selected active cycle.
+      const history = sortedCycles.filter((c) => c.cycle_id !== openCycle?.cycle_id);
       setCycleHistory(history);
 
       // Faculty stats
@@ -1574,6 +1575,10 @@ export default function Dashboard() {
         const role = normalized(user.role);
         return role === 'faculty' || role.includes('faculty');
       }).length;
+
+      const normalizeStatus = (value) => String(value || '').trim();
+      const isPendingReviewStatus = (status) => ['Draft', 'Submitted', 'Under_HR_Review'].includes(normalizeStatus(status));
+      const isCompletedReviewStatus = (status) => ['HR_Completed', 'VPAA_Completed', 'Under_VPAA_Review', 'For_Publishing', 'Published'].includes(normalizeStatus(status));
 
       // Applications for current cycle
       let pendingCount = 0;
@@ -1594,14 +1599,17 @@ export default function Dashboard() {
             .eq('cycle_id', openCycle.cycle_id);
           if (appsError) throw appsError;
           setApplications(applicationsData || []);
-          (applicationsData || []).forEach(app => {
-            if (app.status === 'Under_HR_Review' || app.status === 'Submitted') {
+          (applicationsData || []).forEach((app) => {
+            const status = normalizeStatus(app.status);
+            if (isPendingReviewStatus(status)) {
               pendingCount++;
-            } else {
+            } else if (isCompletedReviewStatus(status)) {
               completedCount++;
             }
           });
         }
+      } else {
+        setApplications([]);
       }
 
       // Calculate stats
