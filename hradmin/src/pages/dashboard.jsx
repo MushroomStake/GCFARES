@@ -49,6 +49,25 @@ const getSemesterLabel = (cycle) => {
   return '';
 };
 
+const toCanonicalSemesterLabel = (value) => {
+  const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return '';
+
+  if (/(^|\b)(1st|first|1)\b/.test(normalized)) return '1st Semester';
+  if (/(^|\b)(2nd|second|2)\b/.test(normalized)) return '2nd Semester';
+
+  return '';
+};
+
+const getExportSemesterLabel = (cycle) => {
+  if (!cycle) return '';
+
+  const fromSemester = toCanonicalSemesterLabel(cycle.semester);
+  if (fromSemester) return fromSemester;
+
+  return toCanonicalSemesterLabel(cycle.title);
+};
+
 const getCyclePeriodLabel = (cycle) => {
   const semester = getSemesterLabel(cycle);
   const academicYear = getAcademicYearLabel(cycle);
@@ -1077,14 +1096,7 @@ export default function Dashboard() {
       // Build rows: strict sample layout
       const rows = [];
 
-      const semesterTextRaw = getSemesterLabel(cycle) || '';
-      const semesterText = (() => {
-        const normalized = String(semesterTextRaw || '').trim().toLowerCase();
-        if (!normalized) return '';
-        if (normalized.includes('first')) return '1st Semester';
-        if (normalized.includes('second')) return '2nd Semester';
-        return '';
-      })();
+      const semesterText = getExportSemesterLabel(cycle);
       const academicYear = getAcademicYearLabel(cycle) || '';
       const periodLabel = [academicYear ? `A.Y ${academicYear}` : '', semesterText].filter(Boolean).join(', ') || (cycle?.title || '');
 
