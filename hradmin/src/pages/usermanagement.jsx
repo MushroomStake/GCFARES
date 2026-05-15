@@ -972,15 +972,6 @@ export default function UserManagement() {
   const facultyPageEnd = facultyPageStart + FACULTY_PAGE_SIZE;
   const paginatedFaculty = filteredFaculty.slice(facultyPageStart, facultyPageEnd);
 
-  const currentCycle = cycles.find((cycle) => String(cycle.cycle_id) === String(selectedCycleId)) || cycles[0] || null;
-
-  const cycleLabel = (cycle) => {
-    if (!cycle) return '';
-    const title = cycle.title || `${cycle.semester || ''} ${cycle.year || ''}`.trim();
-    const status = cycle.status ? ` (${cycle.status})` : '';
-    return `${title}${status}`;
-  };
-
   return (
     <div className="app">
       <Sidebar />
@@ -988,7 +979,7 @@ export default function UserManagement() {
       <div className="main">
         <div className="content">
           <div className="page-title">Faculty Users</div>
-          <div className="semester-tag">{currentCycle ? cycleLabel(currentCycle) : 'No active period selected'} • {facultyList.length} users</div>
+          <div className="semester-tag">{facultyList.length} users</div>
 
           {/* Toolbar */}
           <div className="toolbar">
@@ -1015,16 +1006,6 @@ export default function UserManagement() {
                   <option>All Status</option>
                   <option>For Ranking</option>
                   <option>Inactive</option>
-                </select>
-              </div>
-              <div className="filter-wrap">
-                <select value={selectedCycleId} onChange={e => setSelectedCycleId(e.target.value)}>
-                  <option value="">Select Period</option>
-                  {cycles.map((cycle) => (
-                    <option key={cycle.cycle_id} value={String(cycle.cycle_id)}>
-                      {cycleLabel(cycle)}
-                    </option>
-                  ))}
                 </select>
               </div>
             </div>

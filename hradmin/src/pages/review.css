@@ -183,6 +183,10 @@ tbody td:first-child { padding-left: 0; }
 .qual-select-wrap::after { content: ''; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 0; height: 0; border-left: 3px solid transparent; border-right: 3px solid transparent; border-top: 4px solid var(--muted); pointer-events: none; }
 .qual-select-wrap select { width: 100%; padding: 5px 22px 5px 10px; border: 1px solid var(--border); border-radius: 10px; background: #f9fafb; font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif; font-size: 0.78rem; color: var(--text); outline: none; appearance: none; cursor: pointer; }
 .qual-badge        { display: inline-block; padding: 4px 12px; background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 100px; font-size: 0.72rem; font-weight: 600; }
+
+/* Remove the dropdown caret for computed-only selects */
+.qual-select-wrap.no-arrow::after { display: none; }
+.qual-select-wrap.no-arrow select { -webkit-appearance: none; appearance: none; cursor: default; }
 .qual-passed       { display: inline-block; padding: 4px 12px; background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; border-radius: 100px; font-size: 0.72rem; font-weight: 600; }
 .qual-footer       { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .btn-completed     { background: var(--green-btn); color: #fff; padding: 9px 22px; border: none; border-radius: 10px; font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }

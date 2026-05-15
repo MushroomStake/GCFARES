@@ -306,25 +306,19 @@ export type Database = {
           area_id: number
           area_name: string
           description: string | null
-          is_csv_based: boolean | null
           max_possible_points: number | null
-          template_file_path: string | null
         }
         Insert: {
           area_id?: number
           area_name: string
           description?: string | null
-          is_csv_based?: boolean | null
           max_possible_points?: number | null
-          template_file_path?: string | null
         }
         Update: {
           area_id?: number
           area_name?: string
           description?: string | null
-          is_csv_based?: boolean | null
           max_possible_points?: number | null
-          template_file_path?: string | null
         }
         Relationships: []
       }

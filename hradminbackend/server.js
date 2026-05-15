@@ -7,6 +7,13 @@ import { RANKING_RUBRICS } from "./rankingRubrics.js";
 
 const app = express();
 app.use(cors());
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  return next();
+});
 app.use(express.json());
 
 async function resolveCurrentCycleId() {
@@ -34,6 +41,34 @@ async function resolveCurrentCycleId() {
   }
 
   return null;
+}
+
+const TEMPLATE_BUCKET = process.env.SUPABASE_TEMPLATE_BUCKET || "documents";
+const TEMPLATE_ROOT_FOLDER = "Templates";
+
+function toAreaFolderName(areaId) {
+  return `Area ${String(Number(areaId)).padStart(2, "0")}`;
+}
+
+function toPartFolderName(partId, partLabel = null) {
+  const label = String(partLabel || partId || "").trim();
+  const labelMatch = label.match(/^([A-Z])(?:\.|$|\s)/i);
+  const part = labelMatch?.[1] || String(partId || "").trim().split("_").pop() || "Unknown";
+  return `Part ${String(part).toUpperCase()}`;
+}
+
+function resolveTemplateStoragePath(areaId, partId, fileName, partLabel = null) {
+  const ext = String(fileName || "").toLowerCase().endsWith(".pdf") ? "pdf" : "xlsx";
+  return `${TEMPLATE_ROOT_FOLDER}/${toAreaFolderName(areaId)}/${toPartFolderName(partId, partLabel)}/template.${ext}`;
+}
+
+function resolveTemplateKind(fileName) {
+  const lower = String(fileName || "").toLowerCase();
+  if (lower.endsWith(".xlsx")) return "xlsx";
+  if (lower.endsWith(".csv")) return "csv";
+  if (lower.endsWith(".pdf")) return "pdf";
+  if (lower.endsWith(".docx")) return "docx";
+  return "other";
 }
 
 async function upsertCycleParticipant({ cycleId, facultyId = null, inviteEmail = null, status = "invited", invitedBy = null }) {
@@ -527,6 +562,96 @@ app.post("/users/create", async (req, res) => {
   } catch (err) {
     console.error("Unhandled error in /users/create:", err);
     return res.status(500).json({ error: "Server error while creating user" });
+  }
+});
+
+app.post("/api/template-uploads", async (req, res) => {
+  try {
+    const {
+      area_id,
+      part_id,
+      part_label,
+      part_title,
+      file_name,
+      mime_type,
+      file_size_bytes,
+      file_base64,
+      storage_path,
+      uploaded_by,
+      template_kind,
+      bucket = TEMPLATE_BUCKET,
+      is_active = true,
+    } = req.body || {};
+
+    if (!area_id || !part_id || !file_base64) {
+      return res.status(400).json({ error: "area_id, part_id, and file_base64 are required" });
+    }
+
+    const resolvedPath = storage_path || resolveTemplateStoragePath(area_id, part_id, file_name, part_label);
+    const fileBuffer = Buffer.from(String(file_base64).split(",").pop() || "", "base64");
+
+    if (!fileBuffer.length) {
+      return res.status(400).json({ error: "Invalid file_base64 payload" });
+    }
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(resolvedPath, fileBuffer, {
+        cacheControl: "3600",
+        upsert: true,
+        contentType: mime_type || "application/octet-stream",
+      });
+
+    if (uploadError) {
+      console.error("Error uploading template file:", uploadError);
+      return res.status(500).json({ error: uploadError.message || "Failed to upload template" });
+    }
+
+    const rowPayload = {
+      area_id: Number(area_id),
+      part_id: String(part_id),
+      part_label: part_label || null,
+      part_title: part_title || null,
+      storage_bucket: bucket,
+      storage_path: resolvedPath,
+      file_name: file_name || resolvedPath.split("/").pop(),
+      mime_type: mime_type || null,
+      file_size_bytes: file_size_bytes != null ? Number(file_size_bytes) : null,
+      template_kind: template_kind || resolveTemplateKind(file_name || resolvedPath),
+      is_active: Boolean(is_active),
+      uploaded_by: uploaded_by != null ? Number(uploaded_by) : null,
+      uploaded_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from("area_part_templates")
+      .upsert([rowPayload], { onConflict: "area_id,part_id" })
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error upserting area_part_templates:", error);
+      return res.status(500).json({ error: error.message || "Failed to save template row" });
+    }
+
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(resolvedPath, 3600);
+
+    if (signedError) {
+      console.warn("Signed URL warning:", signedError);
+    }
+
+    return res.json({
+      ok: true,
+      row: data || null,
+      storage_path: resolvedPath,
+      signedUrl: signedData?.signedUrl || null,
+    });
+  } catch (err) {
+    console.error("Unhandled error in /api/template-uploads:", err);
+    return res.status(500).json({ error: "Server error while uploading template" });
   }
 });
 // ══════════════════════════════════════════

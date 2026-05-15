@@ -10,7 +10,7 @@ export default function FacultyRow({ faculty, departments, onView, onEdit, onArc
     const depId = d.department_id;
     return String(depId) === String(faculty.department);
   });
-  const departmentLabel = departmentMatch?.department_name || faculty.department || '';
+  const departmentLabel = departmentMatch?.department_code || departmentMatch?.department_name || faculty.department || '';
 
   return (
     <>

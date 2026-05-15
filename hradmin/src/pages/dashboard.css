@@ -152,6 +152,30 @@ html, body, #root {
   font-weight: 600;
 }
 
+.history-faculty-overlay {
+  position: fixed;
+  top: 0;
+  left: 220px;
+  width: calc(100vw - 220px);
+  height: 100vh;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.4);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+@media (max-width: 900px) {
+  .history-faculty-overlay {
+    left: 0;
+    width: 100vw;
+    padding: 8px;
+  }
+}
+
 /* ══ MODAL ═══════════════════════════════ */
 .modal-overlay {
   display: none;

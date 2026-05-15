@@ -110,8 +110,7 @@ export default function ReviewDetailView({
                       area_id: submission?.area_id,
                       application_id: selectedApplication?.id,
                       label: area.label,
-                      template_file_path: fullAreaData?.template_file_path,
-                      template_file_name: fullAreaData?.template_file_name,
+                      area_name: fullAreaData?.area_name,
                     });
                   }}
                 />

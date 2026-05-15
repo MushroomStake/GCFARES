@@ -1616,6 +1616,43 @@ export function SummaryView({ onBack, areaScores, onCompleted, initialQuals = {}
     if (initialQuals.qual_eligibility) setEligibility(initialQuals.qual_eligibility);
   }, [initialQuals]);
 
+  // Compute Teaching Performance rating from Area IV scores (auto)
+  const computeTeachingRating = (areaScores = []) => {
+    if (!Array.isArray(areaScores) || areaScores.length === 0) return null;
+    // Find the Performance Evaluation area
+    const perfArea = areaScores.find(a => /performance/i.test(String(a.label || '')) || /area\s*iv/i.test(String(a.label || '')));
+    if (!perfArea) return null;
+
+    const points = Number(perfArea.cappedScore || perfArea.cappedScore === 0 ? perfArea.cappedScore : perfArea.score || 0);
+    if (!Number.isFinite(points)) return null;
+
+    const rubricArea = RANKING_RUBRICS.find(r => Number(r.areaId) === 4 || String(r.areaCode).toUpperCase() === 'IV');
+    if (!rubricArea) return null;
+
+    const children = (rubricArea.subAreas || []).reduce((acc, s) => {
+      if (Array.isArray(s.children)) acc.push(...s.children);
+      return acc;
+    }, []);
+
+    if (children.length === 0) return null;
+
+    // Match by nearest integer maxPoints (children use 1..10)
+    const target = Math.round(Number(points));
+    let match = children.find(c => Number(c.maxPoints) === target);
+    if (!match) {
+      // fallback to nearest by absolute difference
+      match = children.slice().sort((a, b) => Math.abs(Number(a.maxPoints) - target) - Math.abs(Number(b.maxPoints) - target))[0];
+    }
+    if (!match) return null;
+
+    // Extract rating text from label (e.g. '1.00-1.39 Poor' -> 'Poor')
+    const label = String(match.label || match.title || '');
+    const m = label.match(/(Poor|Fair|Satisfactory|Very Satisfactory|Outstanding)/i);
+    return m ? m[0].replace(/\s+/g, ' ').trim() : label;
+  };
+
+  const computedTeaching = computeTeachingRating(areaScores);
+
   const toggleExperience = (option) => {
     setExperienceInDegree((prev) => (
       prev.includes(option)
@@ -1640,7 +1677,7 @@ export function SummaryView({ onBack, areaScores, onCompleted, initialQuals = {}
       const qualifications = {
         qual_experience: collapseRangesFromArray(experienceInDegree, RANKS) || '',
         qual_degree: collapseRangesFromArray(degree, RANKS) || '',
-        qual_teaching: teaching || 'Qualified',
+        qual_teaching: computedTeaching || teaching || 'Qualified',
         qual_research: research || 'Qualified',
         qual_eligibility: eligibility || 'Qualified',
       };
@@ -1728,12 +1765,11 @@ export function SummaryView({ onBack, areaScores, onCompleted, initialQuals = {}
         </div>
         <div className="qual-row" style={{ marginBottom: '6px' }}>
           <label>Teaching performance</label>
-          <div className="qual-select-wrap">
-            <select value={teaching} onChange={(e) => setTeaching(e.target.value)}>
-              <option>Qualified</option>
-              <option>Not Qualified</option>
-            </select>
-          </div>
+            <div className="qual-select-wrap no-arrow">
+              <select value={computedTeaching || ''} disabled>
+                <option>{computedTeaching || 'N/A'}</option>
+              </select>
+            </div>
         </div>
         <div className="qual-row" style={{ marginBottom: '6px' }}>
           <label>Research Output</label>

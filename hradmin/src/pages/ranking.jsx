@@ -33,6 +33,33 @@ const ViewIcon = () => (
   </svg>
 );
 
+const TEMPLATE_BUCKET = 'documents';
+const TEMPLATE_ROOT_FOLDER = 'Templates';
+
+const makeTemplateKey = (areaId, partId) => `${Number(areaId)}::${String(partId || '').trim()}`;
+
+const toAreaFolderName = (areaId) => `Area ${String(Number(areaId)).padStart(2, '0')}`;
+
+const toPartFolderName = (subArea) => {
+  const label = String(subArea?.label || '').trim();
+  const letterMatch = label.match(/^([A-Z])(?:|\.|$)/i);
+  const letter = letterMatch?.[1] || String(subArea?.id || '').split('_')[1] || 'Unknown';
+  return `Part ${String(letter).toUpperCase()}`;
+};
+
+const buildTemplateStoragePath = (areaId, subAreaId) => (
+  `${TEMPLATE_ROOT_FOLDER}/${toAreaFolderName(areaId)}/${toPartFolderName({ id: subAreaId, label: String(subAreaId).split('_').pop() })}/template.xlsx`
+);
+
+const resolveTemplateKind = (fileName) => {
+  const lower = String(fileName || '').toLowerCase();
+  if (lower.endsWith('.xlsx')) return 'xlsx';
+  if (lower.endsWith('.csv')) return 'csv';
+  if (lower.endsWith('.pdf')) return 'pdf';
+  if (lower.endsWith('.docx')) return 'docx';
+  return 'other';
+};
+
 export default function Ranking() {
   const [selectedAreaId, setSelectedAreaId] = useState(RANKING_RUBRICS?.[0]?.areaId || null);
   const [uploadedTemplates, setUploadedTemplates] = useState({});
@@ -41,31 +68,84 @@ export default function Ranking() {
 
   useEffect(() => {
     const loadTemplates = async () => {
-      const bucket = 'documents';
-      const roleFolder = 'Admin';
       const templates = {};
+
+      let dbTemplates = [];
+      try {
+        const { data, error } = await supabase
+          .from('area_part_templates')
+          .select('*')
+          .eq('is_active', true);
+
+        if (error) throw error;
+        dbTemplates = data || [];
+      } catch (error) {
+        console.error('Error loading area_part_templates:', error);
+      }
+
+      const templateMap = new Map(dbTemplates.map((row) => [makeTemplateKey(row.area_id, row.part_id), row]));
 
       for (const area of RANKING_RUBRICS) {
         for (const subArea of area.subAreas) {
-          const folderPath = `${roleFolder}/area-${area.areaId}/sub-${subArea.id}`;
+          const key = makeTemplateKey(area.areaId, subArea.id);
+          const existingRecord = templateMap.get(key);
+
+          if (existingRecord?.storage_path) {
+            try {
+              const { data: signedData, error: signedError } = await supabase.storage
+                .from(existingRecord.storage_bucket || TEMPLATE_BUCKET)
+                .createSignedUrl(existingRecord.storage_path, 60 * 60);
+
+              if (!signedError && signedData?.signedUrl) {
+                templates[key] = {
+                  fileName: existingRecord.file_name || existingRecord.storage_path.split('/').pop(),
+                  fileUrl: signedData.signedUrl,
+                  storagePath: existingRecord.storage_path,
+                  templateId: existingRecord.template_id,
+                };
+                continue;
+              }
+            } catch (error) {
+              console.error(`Error signing template for ${key}:`, error);
+            }
+          }
+
+          const folderPath = `${TEMPLATE_ROLE_FOLDER}/area-${area.areaId}/sub-${subArea.id}`;
 
           try {
             const { data: files } = await supabase.storage
-              .from(bucket)
+              .from(TEMPLATE_BUCKET)
               .list(folderPath, { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
 
             if (files && files.length > 0) {
               const latest = files[0];
               const fullPath = `${folderPath}/${latest.name}`;
               const { data: signedData } = await supabase.storage
-                .from(bucket)
+                .from(TEMPLATE_BUCKET)
                 .createSignedUrl(fullPath, 60 * 60);
 
               if (signedData?.signedUrl) {
-                templates[`${area.areaId}-${subArea.id}`] = {
+                templates[key] = {
                   fileName: latest.name,
                   fileUrl: signedData.signedUrl,
+                  storagePath: fullPath,
                 };
+
+                if (!existingRecord) {
+                  await supabase.from('area_part_templates').upsert([{
+                    area_id: area.areaId,
+                    part_id: subArea.id,
+                    part_label: subArea.label,
+                    part_title: subArea.title,
+                    storage_bucket: TEMPLATE_BUCKET,
+                    storage_path: fullPath,
+                    file_name: latest.name,
+                    mime_type: latest.metadata?.mimetype || 'application/pdf',
+                    file_size_bytes: latest.metadata?.size || null,
+                    template_kind: 'pdf',
+                    is_active: true,
+                  }], { onConflict: 'area_id,part_id' });
+                }
               }
             }
           } catch (error) {
@@ -84,8 +164,15 @@ export default function Ranking() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.type !== 'application/pdf') {
-      alert('Invalid file type. Please upload PDF files only.');
+    const fileNameLower = String(file.name || '').toLowerCase();
+    const isAllowedTemplate =
+      file.type === 'application/pdf' ||
+      file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      fileNameLower.endsWith('.xlsx') ||
+      fileNameLower.endsWith('.pdf');
+
+    if (!isAllowedTemplate) {
+      alert('Invalid file type. Please upload PDF or XLSX files only.');
       return;
     }
 
@@ -94,29 +181,48 @@ export default function Ranking() {
       return;
     }
 
-    const bucket = 'documents';
-    const roleFolder = 'Admin';
-    const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-    const path = `${roleFolder}/area-${areaId}/sub-${subAreaId}/${Date.now()}-${safeName}`;
+    const selectedArea = RANKING_RUBRICS.find((area) => Number(area.areaId) === Number(areaId));
+    const selectedSubArea = selectedArea?.subAreas.find((subArea) => String(subArea.id) === String(subAreaId));
+    const path = `${TEMPLATE_ROOT_FOLDER}/${toAreaFolderName(areaId)}/${toPartFolderName(selectedSubArea || { id: subAreaId, label: String(subAreaId).split('_').pop() })}/template.xlsx`;
 
     try {
       const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(path, file, { cacheControl: '3600', upsert: false });
+        .from(TEMPLATE_BUCKET)
+        .upload(path, file, { cacheControl: '3600', upsert: true });
 
       if (uploadError) throw uploadError;
 
       const { data: signedData, error: signedError } = await supabase.storage
-        .from(bucket)
+        .from(TEMPLATE_BUCKET)
         .createSignedUrl(path, 60 * 60);
 
       if (signedError) throw signedError;
+
+      const selectedArea = RANKING_RUBRICS.find((area) => Number(area.areaId) === Number(areaId));
+      const selectedSubArea = selectedArea?.subAreas.find((subArea) => String(subArea.id) === String(subAreaId));
+
+      const { error: dbError } = await supabase.from('area_part_templates').upsert([{
+        area_id: areaId,
+        part_id: subAreaId,
+        part_label: selectedSubArea?.label || null,
+        part_title: selectedSubArea?.title || null,
+        storage_bucket: TEMPLATE_BUCKET,
+        storage_path: path,
+        file_name: file.name,
+        mime_type: file.type || 'application/pdf',
+        file_size_bytes: file.size || null,
+        template_kind: resolveTemplateKind(file.name),
+        is_active: true,
+      }], { onConflict: 'area_id,part_id' });
+
+      if (dbError) throw dbError;
 
       setUploadedTemplates((prev) => ({
         ...prev,
         [`${areaId}-${subAreaId}`]: {
           fileName: file.name,
           fileUrl: signedData.signedUrl,
+          storagePath: path,
         },
       }));
 

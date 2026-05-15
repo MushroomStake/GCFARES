@@ -398,7 +398,6 @@ export function useReviewData() {
             area_id: area.area_id,
             area_name: area.area_name,
             max_possible_points: area.max_possible_points,
-            template_file_path: area.template_file_path,
             description: area.area_name,
           },
         }));
