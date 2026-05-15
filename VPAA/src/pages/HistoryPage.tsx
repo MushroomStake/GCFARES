@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { CheckCircle2, Search, Filter, ArrowRight, Calendar, Download, Loader2, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import ExcelJS from 'exceljs';
@@ -89,6 +90,7 @@ export default function HistoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const historyPageSize = 6;
+  const { id: highlightedCycleId } = useParams();
   const [stats, setStats] = useState({
     totalCycles: 0,
     avgParticipation: '0',
@@ -450,6 +452,27 @@ export default function HistoryPage() {
   const visibleCycles = filteredCycles.slice(historyStartIndex, historyStartIndex + historyPageSize);
 
   useEffect(() => {
+    if (!highlightedCycleId || filteredCycles.length === 0) return;
+
+    const targetIndex = filteredCycles.findIndex((cycle) => cycle.cycle_id === highlightedCycleId);
+    if (targetIndex >= 0) {
+      const targetPage = Math.floor(targetIndex / historyPageSize) + 1;
+      if (historyPage !== targetPage) {
+        setHistoryPage(targetPage);
+        return;
+      }
+    }
+  }, [filteredCycles, historyPage, highlightedCycleId, historyPageSize]);
+
+  useEffect(() => {
+    if (!highlightedCycleId) return;
+    const element = document.getElementById(`history-cycle-${highlightedCycleId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [safeHistoryPage, visibleCycles, highlightedCycleId]);
+
+  useEffect(() => {
     if (historyPage > totalHistoryPages) {
       setHistoryPage(totalHistoryPages);
     }
@@ -516,8 +539,9 @@ export default function HistoryPage() {
         ) : (
           visibleCycles.map((cycle) => (
             <div
+              id={`history-cycle-${cycle.cycle_id}`}
               key={cycle.cycle_id}
-              className="group bg-white p-6 rounded-2xl border border-slate-200 hover:border-primary/40 hover:shadow-md transition-all duration-300"
+              className={`group p-6 rounded-2xl border transition-all duration-300 ${cycle.cycle_id === highlightedCycleId ? 'bg-primary/5 border-primary/70 ring-4 ring-primary/20 shadow-[0_20px_50px_-20px_rgba(59,130,246,0.55)]' : 'bg-white border-slate-200 hover:border-primary/40 hover:shadow-md'}`}
             >
               <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6">
                 <div className="flex items-center gap-5">
