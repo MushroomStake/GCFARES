@@ -1081,11 +1081,9 @@ export default function Dashboard() {
       const semesterText = (() => {
         const normalized = String(semesterTextRaw || '').trim().toLowerCase();
         if (!normalized) return '';
-        if (normalized.includes('first')) return '1st SEM';
-        if (normalized.includes('second')) return '2nd SEM';
-        if (normalized.includes('third')) return '3rd SEM';
-        if (normalized.includes('summer')) return 'Summer SEM';
-        return semesterTextRaw.replace(/semester/i, 'SEM');
+        if (normalized.includes('first')) return '1st Semester';
+        if (normalized.includes('second')) return '2nd Semester';
+        return '';
       })();
       const academicYear = getAcademicYearLabel(cycle) || '';
       const periodLabel = [academicYear ? `A.Y ${academicYear}` : '', semesterText].filter(Boolean).join(', ') || (cycle?.title || '');
