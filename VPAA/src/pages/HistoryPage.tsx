@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle2, Search, Filter, ArrowRight, Calendar, Download, Loader2, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import ExcelJS from 'exceljs';
 import { supabase } from '../supabaseClient'; 
 
 export interface CycleHistory {
@@ -30,6 +31,16 @@ const HistoryPage = () => {
   });
 
   const normalizeStatus = (value: unknown) => String(value || '').trim().toLowerCase();
+
+  const formatSemesterLabel = (value: string) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return 'SEM';
+    if (normalized.includes('first')) return '1st SEM';
+    if (normalized.includes('second')) return '2nd SEM';
+    if (normalized.includes('third')) return '3rd SEM';
+    if (normalized.includes('summer')) return 'Summer SEM';
+    return String(value).replace(/semester/i, 'SEM');
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -171,7 +182,7 @@ const HistoryPage = () => {
       const deptMap = new Map(depts?.map(d => [String(d.department_id), d.department_name]));
       const posMap = new Map(positions?.map(p => [String(p.position_id), p.position_name]));
 
-      // 3. Format the data for the CSV
+      // 3. Format the data for the export sheet
       const formattedData = visibleApps.map(app => {
         const user = userMap.get(app.faculty_id);
         const facultyName = user ? `${user.name_last || ''}, ${user.name_first || ''}`.replace(/^, | ,$/g, '') : 'Unknown';
@@ -192,36 +203,88 @@ const HistoryPage = () => {
 
       // 4. Sort by points descending (Rank 1 to N)
       formattedData.sort((a, b) => b.totalPoints - a.totalPoints);
+      // 5. Build Excel workbook
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'VPAA';
+      workbook.created = new Date();
 
-      // 5. Generate CSV Content
-      const headers = ['Ranking', 'Faculty Name', 'Department', 'Current Position', 'Applied Position', 'Total Points', 'Status'];
-      const csvRows = [headers.join(',')];
-
-      formattedData.forEach((row, index) => {
-        const csvRow = [
-          index + 1,
-          `"${row.facultyName}"`, // Enclosed in quotes to handle names with commas
-          `"${row.department}"`,
-          `"${row.currentPosition}"`,
-          `"${row.appliedPosition}"`,
-          row.totalPoints.toFixed(2),
-          row.status
-        ];
-        csvRows.push(csvRow.join(','));
+      const worksheet = workbook.addWorksheet('Rankings', {
+        views: [{ showGridLines: true }],
       });
 
-      const csvContent = csvRows.join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const safeTitle = cycleTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const titleSemester = formatSemesterLabel(String(cycles.find((cycle) => cycle.cycle_id === cycleId)?.semester || ''));
+      const titleYear = String(cycles.find((cycle) => cycle.cycle_id === cycleId)?.year || '').trim();
+      const titleLine = titleYear ? `A.Y ${titleYear}, ${titleSemester}` : titleSemester;
+
+      worksheet.mergeCells('A1:G1');
+      worksheet.getCell('A1').value = 'GORDON COLLEGE';
+      worksheet.mergeCells('A2:G2');
+      worksheet.getCell('A2').value = 'RANKING PERIOD HISTORY EXPORT';
+      worksheet.mergeCells('A3:G3');
+      worksheet.getCell('A3').value = titleLine || cycleTitle;
+
+      const borderStyle = {
+        top: { style: 'thin' as const, color: { argb: 'FFBFBFBF' } },
+        left: { style: 'thin' as const, color: { argb: 'FFBFBFBF' } },
+        bottom: { style: 'thin' as const, color: { argb: 'FFBFBFBF' } },
+        right: { style: 'thin' as const, color: { argb: 'FFBFBFBF' } },
+      };
+
+      const centerAlignment = { horizontal: 'center' as const, vertical: 'middle' as const, wrapText: true };
+      const leftAlignment = { horizontal: 'left' as const, vertical: 'middle' as const, wrapText: true };
+
+      [1, 2, 3, 4, 5, 6, 7].forEach((col) => {
+        const cell = worksheet.getCell(4, col);
+        cell.font = { bold: true };
+        cell.alignment = centerAlignment;
+        cell.border = borderStyle;
+      });
+
+      formattedData.forEach((row, index) => {
+        const excelRow = worksheet.addRow([
+          index + 1,
+          row.facultyName,
+          row.department,
+          row.currentPosition,
+          row.appliedPosition,
+          Number(row.totalPoints).toFixed(2),
+          row.status,
+        ]);
+
+        excelRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          cell.border = borderStyle;
+          cell.alignment = colNumber === 2 ? leftAlignment : centerAlignment;
+        });
+      });
+
+      worksheet.columns = [
+        { width: 12 },
+        { width: 34 },
+        { width: 28 },
+        { width: 22 },
+        { width: 22 },
+        { width: 14 },
+        { width: 16 },
+      ];
+
+      worksheet.getRow(1).height = 24;
+      worksheet.getRow(2).height = 24;
+      worksheet.getRow(3).height = 24;
+      worksheet.getRow(4).font = { bold: true };
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
-      
+
       // 6. Trigger Download
       const link = document.createElement('a');
-      const safeTitle = cycleTitle.replace(/[^a-zA-Z0-9]/g, '_');
       link.setAttribute('href', url);
-      link.setAttribute('download', `Rankings_${safeTitle}.csv`);
+      link.setAttribute('download', `Rankings_${safeTitle}.xlsx`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
     } catch (error) {
       console.error("Export Error:", error);
