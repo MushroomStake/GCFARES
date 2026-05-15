@@ -2548,6 +2548,7 @@ export default function Home({ user }) {
         firstName: "FirstName",
         lastName: "LastName",
         applyingFor: "Not set",
+        status: "unknown",
     });
     const [applicationInfo, setApplicationInfo] = useState({
         id: null,
@@ -2645,9 +2646,14 @@ export default function Home({ user }) {
             setResolvedCycleTable(periodResult.table);
         }
 
+        const normalizedProfileStatus = String(profileInfo.status || "unknown").toLowerCase();
+        if (normalizedProfileStatus !== "unknown" && normalizedProfileStatus !== "ranking") {
+            nextSubmissionOpen = false;
+        }
+
         setSubmissionOpen(nextSubmissionOpen);
         setPeriodInfo(nextPeriodInfo);
-    }, []);
+    }, [profileInfo.status]);
 
     const openUrl = (url, downloadName = null) => {
         if (!url) return;
@@ -3667,6 +3673,10 @@ export default function Home({ user }) {
                             "",
                         ),
                     ).trim();
+                    const resolvedProfileStatus = String(
+                        getFirstValue(profileRow, ["status", "state", "user_status"], "unknown"),
+                    ).toLowerCase();
+                    const isRankingFaculty = resolvedProfileStatus === "ranking";
 
                     setProfileInfo({
                         currentRank: String(
@@ -3696,7 +3706,12 @@ export default function Home({ user }) {
                         firstName: resolvedFirstName,
                         lastName: resolvedLastName,
                         applyingFor: resolvedApplyingFor || resolvedCurrentPosition || "",
+                        status: resolvedProfileStatus,
                     });
+
+                    if (!isRankingFaculty) {
+                        nextSubmissionOpen = false;
+                    }
 
                     const resolvedFacultyId = getFirstValue(profileRow, ["user_id", "id"], null);
                     numericFacultyId = resolvedFacultyId === null || resolvedFacultyId === undefined
@@ -3935,7 +3950,7 @@ export default function Home({ user }) {
         return () => {
             isActive = false;
         };
-    }, [userEmail, userId]);
+    }, [userEmail, userId, periodInfo.id]);
 
     useEffect(() => {
         if (!resolvedCycleTable) return;
@@ -4084,6 +4099,11 @@ export default function Home({ user }) {
                                 >
                                     Closed
                                 </div>
+                                {profileInfo.status !== "ranking" && profileInfo.status !== "unknown" && (
+                                    <div className="hm-deadline-note" style={{ marginTop: 6, fontSize: 12, opacity: 0.86 }}>
+                                        Your account is not currently marked as For Ranking.
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
