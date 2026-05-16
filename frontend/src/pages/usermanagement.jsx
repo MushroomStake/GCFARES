@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './userManagement.css';
-import { supabase } from '../supabase';
 import EducationModal from './usermanagement/EducationModal';
 import EligibilityModal from './usermanagement/EligibilityModal';
 import DoctoralModal from './usermanagement/DoctoralModal';
@@ -13,6 +12,7 @@ import ViewPanel from './usermanagement/ViewPanel';
 import ApplyForInput from './usermanagement/ApplyForInput';
 import AddUserModal from './usermanagement/AddUserModal';
 import Loader from '../components/Loader';
+import { apiRequest } from '../lib/apiClient';
 // ── Helper Functions ────────────────────────────────────────
 function parseIntegerOrNull(value) {
   const parsed = Number.parseInt(String(value).trim(), 10);
@@ -234,31 +234,20 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
         throw new Error('No active/selected period found. Please select a period before applying for ranking.');
       }
 
-      const participantResp = await fetch(`http://localhost:5000/cycles/${cycleIdForSync}/participants`, {
+      await apiRequest(`/hr/cycles/${cycleIdForSync}/participants`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           faculty_id: numericFacultyId,
           invite_email: form.email,
           status: 'accepted',
-        }),
+        },
       });
-
-      if (!participantResp.ok) {
-        const err = await participantResp.json().catch(() => ({}));
-        throw new Error(err.error || participantResp.statusText || 'Failed to upsert cycle participant');
-      }
     } else {
       if (!cycleIdForSync) return;
 
-      const removeResp = await fetch(`http://localhost:5000/cycles/${cycleIdForSync}/participants/${numericFacultyId}`, {
+      await apiRequest(`/hr/cycles/${cycleIdForSync}/participants/${numericFacultyId}`, {
         method: 'DELETE',
       });
-
-      if (!removeResp.ok && removeResp.status !== 404) {
-        const err = await removeResp.json().catch(() => ({}));
-        throw new Error(err.error || removeResp.statusText || 'Failed to remove cycle participant');
-      }
     }
   };
 
@@ -283,10 +272,9 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
           return;
         }
 
-        const response = await fetch('http://localhost:5000/users/create', {
+        await apiRequest('/hr/users', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: {
             email: form.email.trim(),
             name_first: form.nameFirst.trim(),
             name_middle: form.nameMiddle?.trim() || null,
@@ -296,13 +284,9 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
             last_promotion_date: form.lastPromotionDate || null,
             password: password,
             cycle_id: selectedCycleId || null,
-          }),
+            status: 'ranking',
+          },
         });
-
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to create user');
-        }
 
         onSaved();
         return;
@@ -330,12 +314,10 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
         ...buildDoctoratePayload(doctoralList),
       };
 
-      const { error: updateError } = await supabase
-        .from('users')
-        .update(updateData)
-        .eq('domain_email', form.email);
-
-      if (updateError) throw updateError;
+      await apiRequest(`/hr/users/${faculty?.id}`, {
+        method: 'PUT',
+        body: updateData,
+      });
 
       // Keep cycle_participants in sync with user status for the selected/current cycle
       await syncCycleParticipantForStatus(form.status || 'ranking');
@@ -352,11 +334,12 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
   const handleArchive = async () => {
     if (!faculty?.id) return;
     try {
-      const { error: archiveError } = await supabase.rpc('archive_faculty_user', {
-        p_user_id: Number(faculty.id),
+      await apiRequest(`/hr/users/${faculty.id}/archive`, {
+        method: 'POST',
+        body: {
+          reason: 'Archived from HR Admin portal',
+        },
       });
-
-      if (archiveError) throw archiveError;
       onSaved();
     } catch (err) {
       setError('Failed to archive: ' + err.message);
@@ -376,12 +359,10 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
       setError('');
 
       // Persist toggled status
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ status: nextStatus })
-        .eq('domain_email', form.email);
-
-      if (updateError) throw updateError;
+      await apiRequest(`/hr/users/${faculty?.id}/status`, {
+        method: 'PUT',
+        body: { status: nextStatus },
+      });
 
       // Sync cycle participants for this toggle action as well
       await syncCycleParticipantForStatus(nextStatus);
@@ -735,32 +716,17 @@ export default function UserManagement() {
     setLoadError('');
     try {
       // Get all users
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .neq('domain_email', 'admin@gordoncollege.edu.ph')
-        .neq('role', 'VPAA')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await apiRequest('/hr/users');
 
       // Get current cycle for checking active participants
-      const { data: allCycles } = await supabase
-        .from('ranking_cycles')
-        .select('cycle_id, created_at')
-        .order('created_at', { ascending: false })
-        .limit(1);
+      const allCycles = await apiRequest('/hr/cycles');
 
       const currentCycleId = allCycles?.[0]?.cycle_id;
 
       // Get active participants in current cycle
-      const { data: participants } = currentCycleId
-        ? await supabase
-            .from('cycle_participants')
-            .select('faculty_id')
-            .eq('cycle_id', currentCycleId)
-            .eq('status', 'accepted')
-        : { data: [] };
+      const participants = currentCycleId
+        ? await apiRequest(`/hr/cycles/${currentCycleId}/participants`)
+        : [];
 
       const activeParticipantIds = new Set((participants || []).map(p => p.faculty_id));
 
@@ -823,11 +789,7 @@ export default function UserManagement() {
 
   const fetchDepartments = async () => {
     try {
-      const response = await fetch('http://localhost:5000/departments');
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load departments');
-      }
+      const data = await apiRequest('/hr/departments');
       setDepartments(data || []);
     } catch (err) {
       console.error('Failed to load departments', err);
@@ -840,11 +802,7 @@ export default function UserManagement() {
 
   const fetchCycles = async () => {
     try {
-      const response = await fetch('http://localhost:5000/cycles');
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load cycles');
-      }
+      const data = await apiRequest('/hr/cycles');
 
       const rows = Array.isArray(data) ? data : [];
       setCycles(rows);
@@ -912,12 +870,12 @@ export default function UserManagement() {
 
     try {
       setLoadError('');
-
-      const { error: archiveError } = await supabase.rpc('archive_faculty_user', {
-        p_user_id: Number(faculty.id),
+      await apiRequest(`/hr/users/${faculty.id}/archive`, {
+        method: 'POST',
+        body: {
+          reason: 'Archived from HR Admin portal',
+        },
       });
-
-      if (archiveError) throw archiveError;
 
       await fetchFaculty();
     } catch (err) {

@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { supabase } from '../supabase';
+import { apiRequest } from '../lib/apiClient';
 import logo from "../assets/gclogo-Photoroom.png";
 import './sidenav.css';
 
@@ -55,8 +55,9 @@ export default function Sidebar() {
   const handleLogout = async () => {
     try {
       console.log('🔄 Logging out...');
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      const token = localStorage.getItem('api_token');
+      await apiRequest('/auth/logout', { method: 'POST', body: { token } });
+      localStorage.removeItem('api_token');
       console.log('✅ Logout successful');
       navigate('/login');
     } catch (error) {

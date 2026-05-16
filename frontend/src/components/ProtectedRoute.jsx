@@ -1,25 +1,37 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import { supabase } from '../supabase';
+import { apiRequest } from '../lib/apiClient';
 
 export default function ProtectedRoute({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      const currentUser = session?.user;
-      console.log('🔄 Auth state changed:', currentUser?.email);
-      if (currentUser && currentUser.email === 'admin@gordoncollege.edu.ph') {
-        setUser(currentUser);
-      } else {
-        setUser(null);
+    let mounted = true;
+    async function check() {
+      const token = localStorage.getItem('api_token');
+      if (!token) {
+        if (mounted) setLoading(false);
+        return;
       }
-      setLoading(false);
-    });
-    return () => {
-      listener?.subscription.unsubscribe();
-    };
+      try {
+        const res = await apiRequest('/auth/validate', { method: 'POST', body: { token } });
+        const valid = res?.valid;
+        const user = res?.user ?? null;
+        if (mounted) {
+          if (valid && user?.domain_email === 'admin@gordoncollege.edu.ph') setUser(user);
+          else setUser(null);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (mounted) {
+          setUser(null);
+          setLoading(false);
+        }
+      }
+    }
+    check();
+    return () => { mounted = false; };
   }, []);
 
   if (loading) {

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './ranking.css';
-import { supabase } from '../supabase';
+import { apiRequest } from '../lib/apiClient';
 import { RANKING_RUBRICS } from '../data/rankingRubrics';
 
 const UploadIcon = () => (
@@ -72,13 +72,7 @@ export default function Ranking() {
 
       let dbTemplates = [];
       try {
-        const { data, error } = await supabase
-          .from('area_part_templates')
-          .select('*')
-          .eq('is_active', true);
-
-        if (error) throw error;
-        dbTemplates = data || [];
+        dbTemplates = await apiRequest('/review/templates');
       } catch (error) {
         console.error('Error loading area_part_templates:', error);
       }
@@ -92,65 +86,27 @@ export default function Ranking() {
 
           if (existingRecord?.storage_path) {
             try {
-              const { data: signedData, error: signedError } = await supabase.storage
-                .from(existingRecord.storage_bucket || TEMPLATE_BUCKET)
-                .createSignedUrl(existingRecord.storage_path, 60 * 60);
-
-              if (!signedError && signedData?.signedUrl) {
+              const bucket = existingRecord.storage_bucket || TEMPLATE_BUCKET;
+              const resp = await apiRequest(`/review/storage-url?path=${encodeURIComponent(existingRecord.storage_path)}&bucket=${encodeURIComponent(bucket)}`);
+              const url = resp?.url || null;
+              if (url) {
                 templates[key] = {
                   fileName: existingRecord.file_name || existingRecord.storage_path.split('/').pop(),
-                  fileUrl: signedData.signedUrl,
+                  fileUrl: url,
                   storagePath: existingRecord.storage_path,
                   templateId: existingRecord.template_id,
                 };
                 continue;
               }
             } catch (error) {
-              console.error(`Error signing template for ${key}:`, error);
+              console.error(`Error resolving template URL for ${key}:`, error);
             }
           }
 
           const folderPath = `${TEMPLATE_ROLE_FOLDER}/area-${area.areaId}/sub-${subArea.id}`;
 
-          try {
-            const { data: files } = await supabase.storage
-              .from(TEMPLATE_BUCKET)
-              .list(folderPath, { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
-
-            if (files && files.length > 0) {
-              const latest = files[0];
-              const fullPath = `${folderPath}/${latest.name}`;
-              const { data: signedData } = await supabase.storage
-                .from(TEMPLATE_BUCKET)
-                .createSignedUrl(fullPath, 60 * 60);
-
-              if (signedData?.signedUrl) {
-                templates[key] = {
-                  fileName: latest.name,
-                  fileUrl: signedData.signedUrl,
-                  storagePath: fullPath,
-                };
-
-                if (!existingRecord) {
-                  await supabase.from('area_part_templates').upsert([{
-                    area_id: area.areaId,
-                    part_id: subArea.id,
-                    part_label: subArea.label,
-                    part_title: subArea.title,
-                    storage_bucket: TEMPLATE_BUCKET,
-                    storage_path: fullPath,
-                    file_name: latest.name,
-                    mime_type: latest.metadata?.mimetype || 'application/pdf',
-                    file_size_bytes: latest.metadata?.size || null,
-                    template_kind: 'pdf',
-                    is_active: true,
-                  }], { onConflict: 'area_id,part_id' });
-                }
-              }
-            }
-          } catch (error) {
-            console.error(`Error loading template for ${area.areaId}-${subArea.id}:`, error);
-          }
+          // Listing bucket contents and uploads are not yet implemented on the backend.
+          // If no DB record exists, we skip auto-discovery for now.
         }
       }
 
@@ -186,43 +142,29 @@ export default function Ranking() {
     const path = `${TEMPLATE_ROOT_FOLDER}/${toAreaFolderName(areaId)}/${toPartFolderName(selectedSubArea || { id: subAreaId, label: String(subAreaId).split('_').pop() })}/template.xlsx`;
 
     try {
-      const { error: uploadError } = await supabase.storage
-        .from(TEMPLATE_BUCKET)
-        .upload(path, file, { cacheControl: '3600', upsert: true });
+      const form = new FormData();
+      form.append('area_id', String(areaId));
+      form.append('part_id', String(subAreaId));
+      form.append('file', file);
 
-      if (uploadError) throw uploadError;
+      const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8002/api').replace(/\/api\/?$/, '');
+      const response = await fetch(`${apiBase}/review/templates/upload`, {
+        method: 'POST',
+        body: form,
+      });
 
-      const { data: signedData, error: signedError } = await supabase.storage
-        .from(TEMPLATE_BUCKET)
-        .createSignedUrl(path, 60 * 60);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Upload failed');
+      }
 
-      if (signedError) throw signedError;
-
-      const selectedArea = RANKING_RUBRICS.find((area) => Number(area.areaId) === Number(areaId));
-      const selectedSubArea = selectedArea?.subAreas.find((subArea) => String(subArea.id) === String(subAreaId));
-
-      const { error: dbError } = await supabase.from('area_part_templates').upsert([{
-        area_id: areaId,
-        part_id: subAreaId,
-        part_label: selectedSubArea?.label || null,
-        part_title: selectedSubArea?.title || null,
-        storage_bucket: TEMPLATE_BUCKET,
-        storage_path: path,
-        file_name: file.name,
-        mime_type: file.type || 'application/pdf',
-        file_size_bytes: file.size || null,
-        template_kind: resolveTemplateKind(file.name),
-        is_active: true,
-      }], { onConflict: 'area_id,part_id' });
-
-      if (dbError) throw dbError;
-
+      const json = await response.json();
       setUploadedTemplates((prev) => ({
         ...prev,
         [`${areaId}-${subAreaId}`]: {
-          fileName: file.name,
-          fileUrl: signedData.signedUrl,
-          storagePath: path,
+          fileName: json.file_name,
+          fileUrl: json.url,
+          storagePath: json.storage_path,
         },
       }));
 

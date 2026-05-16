@@ -1,7 +1,7 @@
 import React from 'react';
 import jsPDF from 'jspdf';
-import { supabase } from '../../../supabase';
 import { RANKING_RUBRICS } from '../../../data/rankingRubrics';
+import { apiRequest } from '../../../lib/apiClient';
 
 // statuses that indicate the application has been reviewed by HR/VPAA
 const REVIEWED_STATUSES = ['HR_Completed', 'VPAA_Completed'];
@@ -39,43 +39,10 @@ export default function ApplicationsListView({
   const handleDownloadEvaluationPDF = async (application) => {
     try {
       const applicationId = application.application_id ?? application.id;
-      
-      // Fetch full application data from Supabase - SAME AS VPAA
-      const { data: applicationData, error: appError } = await supabase
-        .from('applications')
-        .select('*')
-        .eq('application_id', applicationId)
-        .single();
-
-      if (appError) throw appError;
-
-      // Fetch areas and submissions from Supabase - SAME AS VPAA
-      const { data: areasData, error: areasError } = await supabase
-        .from('areas')
-        .select('*')
-        .order('area_id');
-
-      if (areasError) throw areasError;
-
-      const { data: submissionsData, error: subError } = await supabase
-        .from('area_submissions')
-        .select('*')
-        .eq('application_id', applicationId);
-
-      if (subError) throw subError;
-
-      // Fetch user data for faculty name - SAME AS VPAA
-      let facultyData = {};
-      if (applicationData?.faculty_id) {
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('user_id', applicationData.faculty_id)
-          .single();
-        if (!userError && userData) {
-          facultyData = userData;
-        }
-      }
+      const areasData = await apiRequest('/review/areas');
+      const submissionsData = await apiRequest(`/review/applications/${applicationId}/submissions`);
+      const applicationData = application;
+      const facultyData = application?.faculty || {};
 
       // Build areas for PDF using VPAA's DB->rubric mapping and aggregation
       const mergedAreas = (areasData || []).map((area) => {
@@ -329,16 +296,10 @@ export default function ApplicationsListView({
           return;
         }
 
-        const { data: submissions, error } = await supabase
-          .from('area_submissions')
-          .select('application_id, vpaa_points, hr_points, csv_total_average_rate')
-          .in('application_id', appIds);
-
-        if (error) {
-          console.warn('Failed to fetch submissions for totals', error);
-          if (mounted) setTotalsMap(initialMap);
-          return;
-        }
+        const submissions = (await Promise.all(appIds.map(async (applicationId) => {
+          const rows = await apiRequest(`/review/applications/${applicationId}/submissions`);
+          return rows || [];
+        }))).flat();
 
         const map = { ...initialMap };
         (submissions || []).forEach((s) => {

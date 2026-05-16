@@ -7,6 +7,7 @@ import { RANKING_RUBRICS } from '../data/rankingRubrics';
 import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './dashboard.css';
+import { apiRequest } from '../lib/apiClient';
 import { supabase } from '../supabase';
 import AreaIVImportPanel from './review/components/AreaIVImportPanel';
 import Loader from '../components/Loader';
@@ -176,10 +177,11 @@ function compressRankRange(rankStr) {
 function getPublicFileUrl(storagePath) {
   if (!storagePath) return null;
   if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) return storagePath;
-  const supabaseUrl = supabase.supabaseUrl;
+
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
   const bucket = 'documents';
   const encodedPath = storagePath.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-  return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodedPath}`;
+  return `${apiBase}/storage/${encodedPath}`;
 }
 
 function flattenAreaCriteria(areaDefinition) {
@@ -482,39 +484,21 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
         setFileModalOpen(false);
         setSelectedFile(null);
 
-        const { data: applicationData, error: appError } = await supabase
-          .from('applications')
-          .select('*')
-          .eq('application_id', applicationId)
-          .single();
+        // Get application details (backend returns full application list; find by id)
+        const allApps = await apiRequest('/review/applications');
+        const applicationData = (allApps || []).find(a => String(a.application_id) === String(applicationId) || String(a.id) === String(applicationId)) || null;
 
-        if (appError) throw appError;
+        const areasData = await apiRequest('/review/areas');
 
-        const { data: areasData, error: areasError } = await supabase
-          .from('areas')
-          .select('*')
-          .order('area_id');
-
-        if (areasError) throw areasError;
-
-        const { data: submissionsData, error: subError } = await supabase
-          .from('area_submissions')
-          .select('*')
-          .eq('application_id', applicationId);
-
-        if (subError) throw subError;
+        // Get submissions for this application
+        const submissionsData = await apiRequest(`/review/applications/${encodeURIComponent(applicationId)}/submissions`);
 
         let userData = null;
-        if (applicationData?.faculty_id) {
-          const { data: fetchedUser, error: userError } = await supabase
-            .from('users')
-            .select(`*, departments(department_name)`)
-            .eq('user_id', applicationData.faculty_id)
-            .single();
-
-          if (!userError && fetchedUser) {
-            userData = fetchedUser;
-          }
+        if (applicationData?.faculty) {
+          userData = applicationData.faculty;
+        } else if (applicationData?.faculty_id) {
+          const users = await apiRequest('/hr/users');
+          userData = (users || []).find(u => Number(u.user_id) === Number(applicationData.faculty_id)) || null;
         }
 
         const scoreMap = {};
@@ -1038,19 +1022,10 @@ export default function Dashboard() {
     setSelectedPastCycle(cycle);
     setLoading(true);
     try {
-      const { data: appsData, error: appsError } = await supabase
-        .from('applications')
-        .select(`
-          application_id, status, hr_score, final_score,
-          current_rank_at_time,
-          qual_experience, qual_degree, qual_teaching, qual_research, qual_eligibility,
-          faculty:faculty_id ( user_id, name_last, name_first, name_middle, department_id, current_rank, nature_of_appointment, departments ( department_name, department_code ) )
-        `)
-        .eq('cycle_id', cycleId)
-        .in('status', ['HR_Completed', 'VPAA_Completed', 'For_Publishing', 'Published']);
-      
-      if (appsError) throw appsError;
-      setPastApplications(appsData || []);
+      const appsData = await apiRequest(`/review/applications?cycle_id=${encodeURIComponent(cycleId)}`);
+      const statuses = ['HR_Completed', 'VPAA_Completed', 'For_Publishing', 'Published'];
+      const filtered = (appsData || []).filter(a => statuses.includes(String(a.status)));
+      setPastApplications(filtered || []);
     } catch (err) {
       console.error('Error fetching past apps:', err);
       alert('Failed to load past applications.');
@@ -1061,28 +1036,30 @@ export default function Dashboard() {
 
   const handleExportCycleCSV = async (cycle) => {
     try {
-      const { data: appsData, error: appsError } = await supabase
-        .from('applications')
-        .select(`
-          application_id, status, hr_score, final_score,
-          current_rank_at_time,
-          qual_experience, qual_degree, qual_teaching, qual_research, qual_eligibility,
-          faculty:faculty_id ( user_id, name_last, name_first, name_middle, department_id, current_rank, nature_of_appointment, departments ( department_name, department_code ) )
-        `)
-        .eq('cycle_id', cycle.cycle_id)
-        .in('status', ['HR_Completed', 'VPAA_Completed', 'For_Publishing', 'Published']);
-      
-      if (appsError) throw appsError;
+      const appsData = await apiRequest(`/review/applications?cycle_id=${encodeURIComponent(cycle.cycle_id)}`);
+      const statuses = ['HR_Completed', 'VPAA_Completed', 'For_Publishing', 'Published'];
+      const filteredApps = (appsData || []).filter(a => statuses.includes(String(a.status)));
 
       // Get application IDs
-      const appIds = (appsData || []).map(a => a.application_id ?? a.id).filter(Boolean);
+      const appIds = filteredApps.map(a => a.application_id ?? a.id).filter(Boolean);
 
-      // Fetch area submissions for these applications to compute area points
-      const { data: submissions = [], error: subsError } = await supabase
-        .from('area_submissions')
-        .select(`application_id, area_id, hr_points, areas ( area_id, area_name, max_possible_points )`)
-        .in('application_id', appIds);
-      if (subsError) throw subsError;
+      // Fetch area submissions per application (backend supports per-application submissions)
+      let submissions = [];
+      await Promise.all(appIds.map(async (appId) => {
+        try {
+          const rows = await apiRequest(`/review/applications/${encodeURIComponent(appId)}/submissions`);
+          if (Array.isArray(rows) && rows.length) {
+            submissions = submissions.concat(rows.map(r => ({
+              application_id: r.application_id,
+              area_id: r.area_id,
+              hr_points: r.hr_points,
+              areas: r.area ? { area_id: r.area.area_id, area_name: r.area.area_name, max_possible_points: r.area.max_possible_points } : null,
+            })));
+          }
+        } catch (e) {
+          // ignore per-application failures for export
+        }
+      }));
 
       // Organize submissions by application -> area
       const subsByApp = new Map();
@@ -1313,38 +1290,19 @@ export default function Dashboard() {
     try {
       const applicationId = app.application_id ?? app.id;
 
-      const { data: applicationData, error: appError } = await supabase
-        .from('applications')
-        .select('*')
-        .eq('application_id', applicationId)
-        .single();
+      const allApps = await apiRequest('/review/applications');
+      const applicationData = (allApps || []).find(a => String(a.application_id) === String(applicationId) || String(a.id) === String(applicationId)) || null;
 
-      if (appError) throw appError;
+      const areasData = await apiRequest('/review/areas');
 
-      const { data: areasData, error: areasError } = await supabase
-        .from('areas')
-        .select('*')
-        .order('area_id');
-
-      if (areasError) throw areasError;
-
-      const { data: submissionsData, error: subError } = await supabase
-        .from('area_submissions')
-        .select('*')
-        .eq('application_id', applicationId);
-
-      if (subError) throw subError;
+      const submissionsData = await apiRequest(`/review/applications/${encodeURIComponent(applicationId)}/submissions`);
 
       let facultyData = {};
-      if (applicationData?.faculty_id) {
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('user_id', applicationData.faculty_id)
-          .single();
-        if (!userError && userData) {
-          facultyData = userData;
-        }
+      if (applicationData?.faculty) {
+        facultyData = applicationData.faculty;
+      } else if (applicationData?.faculty_id) {
+        const users = await apiRequest('/hr/users');
+        facultyData = (users || []).find(u => Number(u.user_id) === Number(applicationData.faculty_id)) || {};
       }
 
       const mergedAreas = (areasData || []).map((area) => {
@@ -1544,11 +1502,8 @@ export default function Dashboard() {
     try {
       console.log('ðŸ”„ Starting data fetch (Supabase)...');
 
-      // Fetch all cycles
-      const { data: allCycles, error: cyclesError } = await supabase
-        .from('ranking_cycles')
-        .select('*');
-      if (cyclesError) throw cyclesError;
+      // Fetch all cycles from backend
+      const allCycles = await apiRequest('/review/cycles');
       console.log('All cycles found:', allCycles);
 
       const sortedCycles = (allCycles || [])
@@ -1567,10 +1522,7 @@ export default function Dashboard() {
       setCycleHistory(history);
 
       // Faculty stats
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select('user_id, role');
-      if (usersError) throw usersError;
+      const usersData = await apiRequest('/hr/users');
 
       const normalized = (role) => String(role || '').trim().toLowerCase();
       const facultyUsersCount = (usersData || []).filter((user) => {
@@ -1587,19 +1539,7 @@ export default function Dashboard() {
       let completedCount = 0;
       if (openCycle) {
         if (openCycle.cycle_id !== undefined && openCycle.cycle_id !== null) {
-          const { data: applicationsData, error: appsError } = await supabase
-            .from('applications')
-            .select(`
-              *,
-              faculty:faculty_id (
-                user_id,
-                name_last,
-                name_first,
-                name_middle
-              )
-            `)
-            .eq('cycle_id', openCycle.cycle_id);
-          if (appsError) throw appsError;
+          const applicationsData = await apiRequest(`/review/applications?cycle_id=${encodeURIComponent(openCycle.cycle_id)}`);
           setApplications(applicationsData || []);
           (applicationsData || []).forEach((app) => {
             const status = normalizeStatus(app.status);
@@ -1623,11 +1563,13 @@ export default function Dashboard() {
 
       // Fallback: derive faculty count from unique faculty_id in applications when role labels are inconsistent.
       if (totalFaculty === 0) {
-        const { data: applicationFacultyRows, error: applicationFacultyError } = await supabase
-          .from('applications')
-          .select('faculty_id');
-        if (!applicationFacultyError && applicationFacultyRows) {
-          totalFaculty = new Set(applicationFacultyRows.map((row) => row.faculty_id)).size;
+        try {
+          const applicationFacultyRows = await apiRequest(`/review/applications?cycle_id=${encodeURIComponent(openCycle?.cycle_id || '')}`);
+          if (applicationFacultyRows && Array.isArray(applicationFacultyRows)) {
+            totalFaculty = new Set(applicationFacultyRows.map((row) => row.faculty_id)).size;
+          }
+        } catch (e) {
+          // ignore fallback
         }
       }
 
@@ -1780,15 +1722,8 @@ export default function Dashboard() {
 
       // 'open' and 'reopen' both set status to 'open' and enable profile editing
       console.log(`ðŸ”„ Updating cycle ${currentCycle.cycle_id} status to: open`);
-      const { error } = await supabase
-        .from('ranking_cycles')
-        .update({
-          status: 'open',
-          profile_edit_open: true,
-        })
-        .eq('cycle_id', currentCycle.cycle_id);
-      if (error) throw error;
-      console.log('âœ… Cycle reopened successfully');
+      await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { status: 'open', profile_edit_open: true } });
+      console.log('✅ Cycle reopened successfully');
       fetchData({ showLoader: false }); // Refresh data silently
     } catch (err) {
       console.error('âŒ Error updating cycle status:', err);
@@ -1802,51 +1737,19 @@ export default function Dashboard() {
     try {
       if (actionModal.action === 'lock-profile' || actionModal.action === 'unlock-profile') {
         const nextProfileEditOpen = actionModal.action === 'unlock-profile';
-        const { error } = await supabase
-          .from('ranking_cycles')
-          .update({ profile_edit_open: nextProfileEditOpen })
-          .eq('cycle_id', currentCycle.cycle_id);
-        if (error) throw error;
-        console.log(`âœ… Profile access ${nextProfileEditOpen ? 'unlocked' : 'locked'} successfully`);
+        await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { profile_edit_open: nextProfileEditOpen } });
+        console.log(`✅ Profile access ${nextProfileEditOpen ? 'unlocked' : 'locked'} successfully`);
       }
 
       if (actionModal.action === 'finish') {
-        const { error } = await supabase
-          .from('ranking_cycles')
-          .update({
-            status: 'finished',
-            profile_edit_open: false,
-          })
-          .eq('cycle_id', currentCycle.cycle_id);
-        if (error) throw error;
-
-        // When evaluation finishes, reset all for-ranking users to inactive
-        const { error: resetError } = await supabase
-          .from('users')
-          .update({ status: 'inactive' })
-          .eq('status', 'ranking');
-        if (resetError) throw resetError;
-
-        // Mark participants in this cycle as removed once evaluation is finished
-        const { error: participantsError } = await supabase
-          .from('cycle_participants')
-          .update({ status: 'removed' })
-          .eq('cycle_id', currentCycle.cycle_id)
-          .in('status', ['invited', 'accepted']);
-        if (participantsError) throw participantsError;
-
-        console.log('âœ… Evaluation finalized successfully');
+        // Finalize cycle via backend which handles updating cycle, resetting users, and participants
+        await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}/finalize`, { method: 'POST', body: {} });
+        console.log('✅ Evaluation finalized successfully');
       }
 
       if (actionModal.action === 'close') {
-        const { error } = await supabase
-          .from('ranking_cycles')
-          .update({
-            status: 'submissions_closed',
-          })
-          .eq('cycle_id', currentCycle.cycle_id);
-        if (error) throw error;
-        console.log('âœ… Submissions closed successfully');
+        await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { status: 'submissions_closed' } });
+        console.log('✅ Submissions closed successfully');
       }
 
       resetActionModal();

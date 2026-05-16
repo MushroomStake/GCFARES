@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { supabase } from '../../../supabase';
+import { apiRequest } from '../../../lib/apiClient';
 import { RANKING_RUBRICS } from '../../../data/rankingRubrics';
 
-const IMPORT_TABLE = 'area_iv_student_evaluation_imports';
 const PAGE_SIZE = 10;
 
 function normalizeKey(value) {
@@ -296,22 +295,13 @@ export default function AreaIVImportPanel({
       setLoadingRows(true);
       setImportError('');
 
-      const { data, error } = await supabase
-        .from(IMPORT_TABLE)
-        .select('*')
-        .eq('cycle_id', cycleId)
-        .order('created_at', { ascending: true });
+      const data = await apiRequest(`/review/area-iv-imports?cycle_id=${cycleId}`);
 
       if (!active) {
         return;
       }
 
-      if (error) {
-        setImportError(error.message || 'Failed to load imported rows.');
-        setImportRows([]);
-      } else {
-        setImportRows(data || []);
-      }
+      setImportRows(Array.isArray(data) ? data : []);
 
       setLoadingRows(false);
     };
@@ -403,29 +393,17 @@ export default function AreaIVImportPanel({
         throw new Error('No valid rows were found. Make sure the file has Employee Name and Total Average Rate columns. Scroll down for detected headers and sample rows.');
       }
 
-      const { error: deleteError } = await supabase
-        .from(IMPORT_TABLE)
-        .delete()
-        .eq('cycle_id', cycleId);
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      const { error: insertError } = await supabase
-        .from(IMPORT_TABLE)
-        .insert(mappedRows);
-
-      if (insertError) {
-        throw insertError;
-      }
+      const replaceResult = await apiRequest('/review/area-iv-imports', {
+        method: 'POST',
+        body: { cycle_id: cycleId, rows: mappedRows },
+      });
 
       // After successfully inserting import rows, attempt to auto-apply scores
       try {
         // run async but do not block UI; log errors
         void (async () => {
           try {
-            await autoApplyScores(mappedRows, onAutoScoreComplete);
+            await autoApplyScores(replaceResult?.rows || mappedRows, onAutoScoreComplete);
           } catch (autoErr) {
             // eslint-disable-next-line no-console
             console.warn('Auto-apply Area IV scores failed:', autoErr);
@@ -722,20 +700,10 @@ async function autoApplyScores(mappedRows, onAutoScoreComplete = null) {
   // Fetch data without nested selects to avoid REST API 400 errors
   const cycleId = mappedRows[0]?.cycle_id ?? null;
 
-  const { data: allAreas } = await supabase
-    .from('areas')
-    .select('area_id, area_name');
-  const areaIvAreaId = (allAreas || []).find((a) => /area\s*iv/i.test(String(a.area_name || '')))?.area_id ?? 7;
+  const areaIvAreaId = 7;
   
   // Fetch applications for this cycle (no nested select to avoid 400 errors)
-  const { data: cycleApps } = await supabase.from('applications').select('*').eq('cycle_id', cycleId);
-  
-  // Fetch all users for matching
-  const { data: allUsers } = await supabase.from('users').select('*');
-  
-  // Build a map for quick lookups
-  const userMap = new Map((allUsers || []).map((u) => [u.user_id, u]));
-  const userList = Array.from(userMap.values());
+  const cycleApps = await apiRequest(`/review/applications?cycle_id=${cycleId}`);
 
   let applied = 0;
   let matchedButNotScored = 0;
@@ -753,48 +721,13 @@ async function autoApplyScores(mappedRows, onAutoScoreComplete = null) {
       // Try same-cycle application first
       if (!appId && Array.isArray(cycleApps)) {
         const found = (cycleApps || []).find((a) => {
-          const user = userMap.get(a.faculty_id);
-          if (!user) return false;
-          const fname = [user.name_last, user.name_first, user.name_middle].filter(Boolean).join(' ');
+          const faculty = a.faculty || {};
+          const fname = [faculty.name_last, faculty.name_first, faculty.name_middle].filter(Boolean).join(' ');
           return nameMatches(row.normalized_name || row.employee_name, fname);
         });
         if (found) {
           appId = found.application_id || found.id || null;
           facultyId = found.faculty_id || null;
-        }
-      }
-
-      // Fallback: try matching against users table when application not found
-      if (!appId && Array.isArray(userList)) {
-        const foundUser = userList.find((u) => {
-          const uname = [u.name_last, u.name_first, u.name_middle].filter(Boolean).join(' ');
-          return nameMatches(row.normalized_name || row.employee_name, uname);
-        });
-        if (foundUser) {
-          facultyId = foundUser.user_id ?? foundUser.id ?? null;
-          // Try to find an application for this faculty in the cycle
-          const foundApp = (cycleApps || []).find((a) => a.faculty_id === facultyId);
-          if (foundApp) appId = foundApp.application_id || foundApp.id || null;
-        }
-      }
-
-      // If still no appId, but we resolved a facultyId, try to find the latest application across cycles for that faculty
-      if (!appId && facultyId) {
-        try {
-          const { data: latestApp } = await supabase
-            .from('applications')
-            .select('*')
-            .eq('faculty_id', facultyId)
-            .order('cycle_id', { ascending: false })
-            .limit(1);
-
-          if (latestApp && latestApp[0]) {
-            const a = latestApp[0];
-            appId = a.application_id ?? a.id ?? null;
-          }
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('Fetch latest app failed:', e);
         }
       }
 
@@ -807,52 +740,13 @@ async function autoApplyScores(mappedRows, onAutoScoreComplete = null) {
 
       // Persist matched ids back to import table to keep UI in sync
       try {
-        await supabase.from(IMPORT_TABLE).update({ matched_application_id: appId, matched_faculty_id: facultyId ?? null }).eq('cycle_id', row.cycle_id).eq('normalized_name', row.normalized_name);
+        await apiRequest(`/review/area-iv-imports/${row.import_id}`, {
+          method: 'PATCH',
+          body: { matched_application_id: appId, matched_faculty_id: facultyId ?? null },
+        });
       } catch (u) {
         // ignore update failure
       }
-
-      // Find or create area_submission for Area IV (area_id = 4)
-      const { data: existingSubmission, error: existingErr } = await supabase
-        .from('area_submissions')
-        .select('*')
-        .eq('application_id', appId)
-        .eq('area_id', areaIvAreaId)
-        .eq('cycle_id', row.cycle_id)
-        .maybeSingle();
-
-      if (existingErr) {
-        // eslint-disable-next-line no-console
-        console.warn('Error lookup submission for auto-score', existingErr);
-      }
-
-      let submissionId = existingSubmission?.submission_id ?? existingSubmission?.id ?? null;
-
-      if (!submissionId) {
-        const { data: inserted, error: insertSubErr } = await supabase
-          .from('area_submissions')
-          .insert({
-            application_id: appId,
-            area_id: areaIvAreaId,
-            cycle_id: row.cycle_id,
-            file_path: null,
-            hr_points: 0,
-            csv_total_average_rate: row.total_average_rate,
-            uploaded_at: new Date().toISOString(),
-          })
-          .select()
-          .maybeSingle();
-
-        if (insertSubErr) {
-          // eslint-disable-next-line no-console
-          console.warn('Failed to create placeholder submission for auto-score', insertSubErr);
-          continue;
-        }
-
-        submissionId = inserted?.submission_id ?? inserted?.id ?? null;
-      }
-
-      if (!submissionId) continue;
 
       // Build Area IV criteria payload directly from RANKING_RUBRICS (don't trust GET endpoint)
       const area = (RANKING_RUBRICS || []).find((r) => Number(r.areaId) === 4);
@@ -884,7 +778,7 @@ async function autoApplyScores(mappedRows, onAutoScoreComplete = null) {
       const points = Number(child.maxPoints ?? child.max_points ?? child.max ?? Math.round(((avg / 5) * 10)));
 
       // eslint-disable-next-line no-console
-      console.log(`[AutoScore] Row: ${row.employee_name}, Avg: ${avg}, TargetId: ${targetId}, Points: ${points}, SubmissionId: ${submissionId}`);
+      console.log(`[AutoScore] Row: ${row.employee_name}, Avg: ${avg}, TargetId: ${targetId}, Points: ${points}`);
 
       // Build full payload with all IV criteria; set matching one to points, others to 0
       // Note: use criterion.label (e.g., "1.00-1.39 Poor") as criterion_key, not criterion.id
@@ -896,28 +790,29 @@ async function autoApplyScores(mappedRows, onAutoScoreComplete = null) {
       // eslint-disable-next-line no-console
       console.log(`[AutoScore] Payload criteria count: ${payloadCriteria.length}, matching criterion: ${payloadCriteria.find((c) => Number(c.score) > 0)?.criterion_key} = ${payloadCriteria.find((c) => Number(c.score) > 0)?.score}`);
 
-      // Send PATCH to backend to upsert criteria (backend computes hr_points and updates area_submissions)
-      const backendUrl = `http://localhost:5000/review/submission-scoring/${submissionId}`;
-      // eslint-disable-next-line no-console
-      console.log(`[AutoScore] Sending PATCH to ${backendUrl}`);
-      
-      const patchRes = await fetch(backendUrl, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ criteria: payloadCriteria }),
+      const backendResult = await apiRequest(`/review/submission-scoring/placeholder-${row.normalized_name || row.employee_name}`, {
+        method: 'POST',
+        body: {
+          criteria: payloadCriteria.map((criterion) => ({
+            criterion_key: criterion.criterion_key,
+            label: criterion.criterion_key,
+            title: criterion.criterion_key,
+            maxPoints: Number(criterion.score) > 0 ? Number(criterion.score) : 0,
+            score: Number(criterion.score) || 0,
+            cappedScore: Number(criterion.score) || 0,
+            excessScore: 0,
+          })),
+          context: {
+            application_id: appId,
+            area_id: areaIvAreaId,
+            cycle_id: row.cycle_id,
+            user_id: facultyId ?? null,
+            csv_total_average_rate: row.total_average_rate,
+          },
+        },
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`[AutoScore] PATCH response status: ${patchRes.status}`);
-
-      if (!patchRes.ok) {
-        const errBody = await patchRes.text().catch(() => '');
-        // eslint-disable-next-line no-console
-        console.warn(`[AutoScore] PATCH failed for submission ${submissionId}: ${errBody}`);
-      } else {
-        const patchJson = await patchRes.json().catch(() => ({}));
-        // eslint-disable-next-line no-console
-        console.log(`[AutoScore] PATCH success:`, patchJson);
+      if (backendResult) {
         applied += 1;
       }
 
@@ -932,7 +827,7 @@ async function autoApplyScores(mappedRows, onAutoScoreComplete = null) {
 
   // Refresh import rows in UI and show notice
   try {
-    const { data: refreshed } = await supabase.from(IMPORT_TABLE).select('*').eq('cycle_id', cycleId).order('created_at', { ascending: true });
+    const refreshed = await apiRequest(`/review/area-iv-imports?cycle_id=${cycleId}`);
     if (refreshed) {
       // update state by fetching via direct set - caller will refresh when appropriate
       // setImportRows is not in scope; rely on caller to re-read or UI will reflect DB on next load

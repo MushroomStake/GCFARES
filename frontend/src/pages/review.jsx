@@ -1,7 +1,6 @@
 import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './review.css';
-import { supabase } from '../supabase';
 import { useEffect, useState } from 'react';
 import ApplicationsListView from './review/components/ApplicationsListView';
 import ReviewDetailView from './review/components/ReviewDetailView';
@@ -15,6 +14,7 @@ import {
 } from './review/components/ReviewHelpers';
 import Loader from '../components/Loader';
 import { useReviewData } from '../hooks/useReviewData';
+import { apiRequest } from '../lib/apiClient';
 
 // ══ MAIN COMPONENT ═══════════════════════════════════════════
 // Optimized using useReviewData custom hook (~600 lines consolidated)
@@ -69,7 +69,6 @@ export default function Review() {
   const handleSaveAreaScore = async (area) => {
     const parsedScore = Number.parseFloat(reviewData.draftScores[area.id]);
     const maxPoints = Number(area.max || 0);
-    const areaIvAreaId = (reviewData.areas || []).find((entry) => /AREA\s+IV/i.test(String(entry.area_name || '')))?.area_id ?? 7;
 
     if (!Number.isFinite(parsedScore)) {
       alert('Please enter a valid numeric score before saving.');
@@ -84,82 +83,34 @@ export default function Review() {
     try {
       reviewData.setSavingAreaId(area.id);
 
+      const areaIvAreaId = (reviewData.areas || []).find((entry) => /AREA\s+IV/i.test(String(entry.area_name || '')))?.area_id ?? 7;
       const isAreaIVPlaceholder = Number(area.area_id) === Number(areaIvAreaId) && String(area.id || '').startsWith('placeholder-');
       let csvTotalAverageRate = null;
 
       if (isAreaIVPlaceholder && reviewData.selectedApplication?.id && reviewData.currentCycle?.cycle_id) {
-        const { data: importedRows, error: importLookupError } = await supabase
-          .from('area_iv_student_evaluation_imports')
-          .select('total_average_rate')
-          .eq('cycle_id', reviewData.currentCycle.cycle_id)
-          .eq('matched_application_id', reviewData.selectedApplication.id)
-          .order('created_at', { ascending: false })
-          .limit(1);
-
-        if (importLookupError) throw importLookupError;
-
-        csvTotalAverageRate = importedRows?.[0]?.total_average_rate ?? null;
+        const importedRows = await apiRequest(`/review/area-iv-imports/latest?cycle_id=${reviewData.currentCycle.cycle_id}&application_id=${reviewData.selectedApplication.id}`);
+        csvTotalAverageRate = importedRows?.total_average_rate ?? null;
       }
 
-      if (isAreaIVPlaceholder && reviewData.selectedApplication?.id) {
-        const { data: existingArea4Submission, error: existingError } = await supabase
-          .from('area_submissions')
-          .select('*')
-          .eq('application_id', reviewData.selectedApplication.id)
-          .eq('area_id', areaIvAreaId)
-          .eq('cycle_id', reviewData.currentCycle?.cycle_id)
-          .maybeSingle();
-
-        if (existingError) throw existingError;
-
-        if (existingArea4Submission) {
-          const nextUpdate = { hr_points: parsedScore };
-
-          if (csvTotalAverageRate !== null && csvTotalAverageRate !== undefined) {
-            nextUpdate.csv_total_average_rate = csvTotalAverageRate;
-          }
-
-          const { error: updateArea4Error } = await supabase
-            .from('area_submissions')
-            .update(nextUpdate)
-            .eq('submission_id', existingArea4Submission.submission_id);
-
-          if (updateArea4Error) throw updateArea4Error;
-        } else {
-          const insertPayload = {
-            application_id: reviewData.selectedApplication.id,
-            area_id: areaIvAreaId,
-            cycle_id: reviewData.currentCycle?.cycle_id,
-            file_path: null,
-            hr_points: parsedScore,
-            uploaded_at: new Date().toISOString(),
-          };
-
-          if (csvTotalAverageRate !== null && csvTotalAverageRate !== undefined) {
-            insertPayload.csv_total_average_rate = csvTotalAverageRate;
-          }
-
-          const { error: insertArea4Error } = await supabase
-            .from('area_submissions')
-            .insert(insertPayload);
-
-          if (insertArea4Error) throw insertArea4Error;
-        }
-      } else {
-        const { error: submissionUpdateError } = await supabase
-          .from('area_submissions')
-          .update({ hr_points: parsedScore })
-          .eq('submission_id', area.id);
-        if (submissionUpdateError) throw submissionUpdateError;
-      }
+      const saved = await apiRequest('/review/area-scores', {
+        method: 'POST',
+        body: {
+          application_id: reviewData.selectedApplication.id,
+          area_id: area.area_id,
+          cycle_id: reviewData.currentCycle?.cycle_id,
+          submission_id: Number.isFinite(Number(area.id)) ? Number(area.id) : undefined,
+          hr_points: parsedScore,
+          csv_total_average_rate: csvTotalAverageRate,
+        },
+      });
 
       const updatedSubmissions = reviewData.areaSubmissions.map((submission) => {
         if (submission.id === area.id) {
-          return { ...submission, hr_points: parsedScore };
+          return { ...submission, ...saved.submission, hr_points: parsedScore };
         }
 
         if (isAreaIVPlaceholder && Number(submission.area_id) === Number(areaIvAreaId) && String(submission.id || '').startsWith('placeholder-')) {
-          return { ...submission, hr_points: parsedScore };
+          return { ...submission, ...saved.submission, hr_points: parsedScore };
         }
 
         return submission;
@@ -176,10 +127,7 @@ export default function Review() {
           }
 
           try {
-            const response = await fetch(
-              `http://localhost:5000/review/submission-scoring/${submission.submission_id}`
-            );
-            const scoringData = await response.json();
+            const scoringData = await apiRequest(`/review/submission-scoring/${submission.submission_id}`);
             
             const totalScore = Number(scoringData.totalScore || 0);
             const areaMax = Number(submission.area?.max_possible_points || 85);
@@ -208,15 +156,9 @@ export default function Review() {
       const totalScore = calculateTotalScore(enrichedSubmissions);
 
       if (reviewData.selectedApplication?.id) {
-        const { error: appUpdateError } = await supabase
-          .from('applications')
-          .update({ hr_score: totalScore })
-          .eq('application_id', reviewData.selectedApplication.id);
-        if (appUpdateError) throw appUpdateError;
-
         const updatedSelectedApplication = {
           ...reviewData.selectedApplication,
-          hr_score: totalScore,
+          hr_score: saved?.application?.hr_score ?? totalScore,
           display_score: reviewData.selectedApplication.final_score ?? totalScore
         };
 
@@ -255,12 +197,10 @@ export default function Review() {
     try {
       reviewData.setSavingFinalScore(true);
 
-      const { error: updateError } = await supabase
-        .from('applications')
-        .update({ final_score: parsedScore })
-        .eq('application_id', reviewData.selectedApplication.id);
-
-      if (updateError) throw updateError;
+      await apiRequest(`/review/applications/${reviewData.selectedApplication.id}`, {
+        method: 'PATCH',
+        body: { final_score: parsedScore },
+      });
 
       const updatedSelectedApplication = {
         ...reviewData.selectedApplication,
@@ -296,9 +236,9 @@ export default function Review() {
     try {
       const now = new Date().toISOString();
 
-      const { error: updateError } = await supabase
-        .from('applications')
-        .update({
+      await apiRequest(`/review/applications/${reviewData.selectedApplication.id}`, {
+        method: 'PATCH',
+        body: {
           qual_experience: qualifications.qual_experience,
           qual_degree: qualifications.qual_degree,
           qual_teaching: qualifications.qual_teaching,
@@ -306,10 +246,8 @@ export default function Review() {
           qual_eligibility: qualifications.qual_eligibility,
           status: 'HR_Completed',
           hr_completed_at: now,
-        })
-        .eq('application_id', reviewData.selectedApplication.id);
-
-      if (updateError) throw updateError;
+        },
+      });
 
       const updatedSelectedApplication = {
         ...reviewData.selectedApplication,
@@ -381,9 +319,8 @@ export default function Review() {
       const submissionId = area.submission_id || area.id;
 
       try {
-        const response = await fetch(`http://localhost:5000/review/submission-scoring/${submissionId}`);
-        if (response.ok) {
-          const data = await response.json();
+        const data = await apiRequest(`/review/submission-scoring/${submissionId}`);
+        if (data) {
           reviewData.setSelectedArea({
             ...area,
             ...data.area,
@@ -474,18 +411,10 @@ export default function Review() {
         user_id: reviewData.selectedArea?.submission?.user_id || reviewData.selectedApplication?.faculty_id || reviewData.selectedFaculty?.user_id || null,
       };
 
-      const response = await fetch(`http://localhost:5000/review/submission-scoring/${submissionId}`, {
+      const updatedSubmission = await apiRequest(`/review/submission-scoring/${submissionId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ criteria: criteriaScores, context: scoringContext }),
+        body: { criteria: criteriaScores, context: scoringContext },
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to update score');
-      }
-
-      const updatedSubmission = await response.json();
       const returnedId = Number(updatedSubmission?.submission?.submission_id || updatedSubmission?.submission?.id || submissionId);
 
       const updatedSubmissions = reviewData.areaSubmissions.map((sub) =>
@@ -521,17 +450,16 @@ export default function Review() {
       }, 0);
 
       if (reviewData.selectedApplication?.id) {
-        const { error: appUpdateError } = await supabase
-          .from('applications')
-          .update({ hr_score: totalScore })
-          .eq('application_id', reviewData.selectedApplication.id);
-        if (!appUpdateError) {
-          const updatedApp = { ...reviewData.selectedApplication, hr_score: totalScore, display_score: reviewData.selectedApplication.final_score ?? totalScore };
-          reviewData.setSelectedApplication(updatedApp);
-          reviewData.setApplications((prev) =>
-            prev.map((app) => app.id === reviewData.selectedApplication.id ? { ...app, hr_score: totalScore, display_score: app.final_score ?? totalScore } : app)
-          );
-        }
+        await apiRequest(`/review/applications/${reviewData.selectedApplication.id}`, {
+          method: 'PATCH',
+          body: { hr_score: totalScore },
+        });
+
+        const updatedApp = { ...reviewData.selectedApplication, hr_score: totalScore, display_score: reviewData.selectedApplication.final_score ?? totalScore };
+        reviewData.setSelectedApplication(updatedApp);
+        reviewData.setApplications((prev) =>
+          prev.map((app) => app.id === reviewData.selectedApplication.id ? { ...app, hr_score: totalScore, display_score: app.final_score ?? totalScore } : app)
+        );
       }
 
     } catch (err) {

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../supabase';
+import { useState, useEffect } from 'react';
+import { apiRequest } from '../lib/apiClient';
 import { RANKING_RUBRICS } from '../data/rankingRubrics';
 
 /**
@@ -38,9 +38,6 @@ export function useReviewData() {
   const [editingFinalScore, setEditingFinalScore] = useState(false);
   const [draftFinalScore, setDraftFinalScore] = useState('');
   const [savingFinalScore, setSavingFinalScore] = useState(false);
-  const realtimeChannelRef = useRef(null);
-  const refreshTimerRef = useRef(null);
-  const liveApplicationsChannelRef = useRef(null);
 
   const APPLICATION_PAGE_SIZE = 10;
 
@@ -48,106 +45,6 @@ export function useReviewData() {
   useEffect(() => {
     void fetchApplicationsData();
   }, []);
-
-  useEffect(() => {
-    if (!currentCycle?.cycle_id) return undefined;
-
-    const scheduleFullRefresh = () => {
-      void fetchApplicationsData({ showLoader: false });
-    };
-
-    const channel = supabase
-      .channel(`review-applications-live-${currentCycle.cycle_id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, (payload) => {
-        const newCycleId = payload?.new?.cycle_id != null ? Number(payload.new.cycle_id) : null;
-        const oldCycleId = payload?.old?.cycle_id != null ? Number(payload.old.cycle_id) : null;
-        if (newCycleId === Number(currentCycle.cycle_id) || oldCycleId === Number(currentCycle.cycle_id)) {
-          scheduleFullRefresh();
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cycle_participants' }, (payload) => {
-        const newCycleId = payload?.new?.cycle_id != null ? Number(payload.new.cycle_id) : null;
-        const oldCycleId = payload?.old?.cycle_id != null ? Number(payload.old.cycle_id) : null;
-        if (newCycleId === Number(currentCycle.cycle_id) || oldCycleId === Number(currentCycle.cycle_id)) {
-          scheduleFullRefresh();
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ranking_cycles' }, (payload) => {
-        const newCycleId = payload?.new?.cycle_id != null ? Number(payload.new.cycle_id) : null;
-        const oldCycleId = payload?.old?.cycle_id != null ? Number(payload.old.cycle_id) : null;
-        if (newCycleId === Number(currentCycle.cycle_id) || oldCycleId === Number(currentCycle.cycle_id)) {
-          scheduleFullRefresh();
-        }
-      })
-      .subscribe();
-
-    liveApplicationsChannelRef.current = channel;
-
-    return () => {
-      if (liveApplicationsChannelRef.current) {
-        supabase.removeChannel(liveApplicationsChannelRef.current);
-        liveApplicationsChannelRef.current = null;
-      }
-    };
-  }, [currentCycle?.cycle_id]);
-
-  useEffect(() => {
-    if (!currentCycle?.cycle_id) return undefined;
-
-    const scheduleRefresh = () => {
-      if (refreshTimerRef.current) {
-        window.clearTimeout(refreshTimerRef.current);
-      }
-
-      refreshTimerRef.current = window.setTimeout(async () => {
-        try {
-          // Avoid refetching everything (which sets the global loading spinner).
-          // For realtime submission/score events, do a lightweight refresh:
-          // - If admin is viewing details for a specific application, refresh only its area submissions.
-          // - Otherwise skip heavy refresh to prevent global spinner flicker.
-          if (selectedApplication?.id && areas.length > 0 && (view === 'detail' || view === 'summary')) {
-            await fetchAreaSubmissions(selectedApplication.id);
-          }
-        } catch (error) {
-          console.error('❌ Error refreshing review data from realtime event:', error);
-        }
-      }, 250);
-    };
-
-    const matchesCurrentCycle = (payload) => {
-      const newCycleId = payload?.new?.cycle_id != null ? Number(payload.new.cycle_id) : null;
-      const oldCycleId = payload?.old?.cycle_id != null ? Number(payload.old.cycle_id) : null;
-      return newCycleId === Number(currentCycle.cycle_id) || oldCycleId === Number(currentCycle.cycle_id);
-    };
-
-    const channel = supabase
-      .channel(`review-live-updates-${currentCycle.cycle_id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'area_submissions' }, (payload) => {
-        if (matchesCurrentCycle(payload)) {
-          scheduleRefresh();
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'area_submission_criterion_scores' }, (payload) => {
-        const payloadCycleId = payload?.new?.cycle_id != null ? Number(payload.new.cycle_id) : (payload?.old?.cycle_id != null ? Number(payload.old.cycle_id) : null);
-        if (payloadCycleId === Number(currentCycle.cycle_id)) {
-          scheduleRefresh();
-        }
-      })
-      .subscribe();
-
-    realtimeChannelRef.current = channel;
-
-    return () => {
-      if (refreshTimerRef.current) {
-        window.clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-      if (realtimeChannelRef.current) {
-        supabase.removeChannel(realtimeChannelRef.current);
-        realtimeChannelRef.current = null;
-      }
-    };
-  }, [currentCycle?.cycle_id, selectedApplication?.id, areas.length, view]);
 
   // ─── Fetch Area Submissions When Selection Changes ───────
   useEffect(() => {
@@ -164,14 +61,10 @@ export function useReviewData() {
   const fetchApplicationsData = async ({ showLoader = true } = {}) => {
     try {
       if (showLoader) setLoading(true);
-      console.log('📊 Fetching applications data (Supabase)...');
+      console.log('📊 Fetching applications data (Laravel API)...');
 
       // Get all cycles and find the active one
-      const { data: allCycles, error: allCyclesError } = await supabase
-        .from('ranking_cycles')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (allCyclesError) throw allCyclesError;
+      const allCycles = await apiRequest('/review/cycles');
 
       const activeCycle = (allCycles || [])[0] || null;
 
@@ -191,28 +84,19 @@ export function useReviewData() {
       });
 
       // Get participants for this cycle
-      const { data: participantsData, error: participantsError } = await supabase
-        .from('cycle_participants')
-        .select('faculty_id, status')
-        .eq('cycle_id', activeCycle.cycle_id)
-        .eq('status', 'accepted');
-      if (participantsError) throw participantsError;
+      const participantsData = await apiRequest(`/review/cycles/${activeCycle.cycle_id}/participants`);
 
       let participantFacultyIds = Array.from(
-        new Set((participantsData || []).map(p => p.faculty_id).filter(Boolean))
+        new Set((participantsData || []).filter((p) => String(p.status).toLowerCase() === 'accepted').map(p => p.faculty_id).filter(Boolean))
       );
 
       // Fallback: include any participants if no accepted ones found
       if (participantFacultyIds.length === 0) {
-        const { data: anyParticipants, error: anyError } = await supabase
-          .from('cycle_participants')
-          .select('faculty_id, status')
-          .eq('cycle_id', activeCycle.cycle_id)
-          .not('faculty_id', 'is', null);
+        const anyParticipants = (participantsData || []).filter((participant) => participant.faculty_id != null);
 
-        if (!anyError && (anyParticipants || []).length > 0) {
+        if (anyParticipants.length > 0) {
           participantFacultyIds = Array.from(
-            new Set((anyParticipants || []).map(p => p.faculty_id).filter(Boolean))
+            new Set(anyParticipants.map(p => p.faculty_id).filter(Boolean))
           );
         } else {
           setApplications([]);
@@ -221,42 +105,24 @@ export function useReviewData() {
       }
 
       // Get areas and departments for enrichment
-      const { data: areasData, error: areasError } = await supabase
-        .from('areas')
-        .select('*');
-      if (areasError) throw areasError;
+      const areasData = await apiRequest('/review/areas');
       setAreas(areasData || []);
 
-      const { data: departmentsData, error: departmentsError } = await supabase
-        .from('departments')
-        .select('department_id, department_name');
-      if (departmentsError) throw departmentsError;
-
-      const departmentById = new Map(
-        (departmentsData || []).map(dept => [dept.department_id, dept.department_name])
-      );
-
       // Get applications for participants in this cycle
-      const { data: applicationsData, error: applicationsError } = await supabase
-        .from('applications')
-        .select('*')
-        .in('faculty_id', participantFacultyIds)
-        .eq('cycle_id', activeCycle.cycle_id)
-        .order('created_at', { ascending: false });
-      if (applicationsError) throw applicationsError;
+      const applicationsData = (await apiRequest(`/review/applications?cycle_id=${activeCycle.cycle_id}`))
+        .filter((application) => participantFacultyIds.includes(application.faculty_id));
 
       // Track submission counts per application
       const applicationIdsForCycle = (applicationsData || []).map(app => app.application_id);
       let submissionCountByApplicationId = new Map();
 
       if (applicationIdsForCycle.length > 0) {
-        const { data: applicationSubmissions, error: applicationSubmissionsError } = await supabase
-          .from('area_submissions')
-          .select('application_id')
-          .eq('cycle_id', activeCycle.cycle_id)
-          .in('application_id', applicationIdsForCycle);
-
-        if (applicationSubmissionsError) throw applicationSubmissionsError;
+        const applicationSubmissions = await Promise.all(
+          applicationIdsForCycle.map(async (applicationId) => {
+            const rows = await apiRequest(`/review/applications/${applicationId}/submissions`);
+            return (rows || []).map(() => ({ application_id: applicationId }));
+          })
+        ).then((groups) => groups.flat());
 
         submissionCountByApplicationId = (applicationSubmissions || []).reduce((acc, row) => {
           const current = acc.get(row.application_id) || 0;
@@ -295,11 +161,15 @@ export function useReviewData() {
       let fallbackScoreByApplicationId = new Map();
 
       if (applicationIds.length > 0) {
-        const { data: allSubmissions, error: submissionsError } = await supabase
-          .from('area_submissions')
-          .select('application_id, hr_points')
-          .in('application_id', applicationIds);
-        if (submissionsError) throw submissionsError;
+        const allSubmissions = await Promise.all(
+          applicationIds.map(async (applicationId) => {
+            const rows = await apiRequest(`/review/applications/${applicationId}/submissions`);
+            return (rows || []).map((row) => ({
+              application_id: applicationId,
+              hr_points: row.hr_points,
+            }));
+          })
+        ).then((groups) => groups.flat());
 
         fallbackScoreByApplicationId = (allSubmissions || []).reduce((acc, row) => {
           const current = acc.get(row.application_id) || 0;
@@ -311,14 +181,10 @@ export function useReviewData() {
       // Enrich applications with faculty data
       const applicationsWithFaculty = [];
       for (const appData of cycleScopedApplications) {
-        const { data: facultyData, error: facultyError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('user_id', appData.faculty_id)
-          .single();
-        if (facultyError) continue;
+        const facultyData = appData.faculty;
+        if (!facultyData) continue;
 
-        const isRankingFaculty = (facultyData?.status || '').toString().trim().toLowerCase() === 'ranking';
+        const isRankingFaculty = (facultyData?.status || appData.faculty_status || '').toString().trim().toLowerCase() === 'ranking';
         const hasSubmittedFiles = (submissionCountByApplicationId.get(appData.application_id) || 0) > 0;
 
         // Show if faculty is ranking OR has submitted files
@@ -334,10 +200,7 @@ export function useReviewData() {
           id: appData.application_id,
           ...appData,
           display_score: displayScore,
-          faculty: {
-            ...facultyData,
-            department_name: departmentById.get(facultyData.department_id) || 'Unknown'
-          }
+          faculty: facultyData,
         });
       }
 
@@ -362,12 +225,7 @@ export function useReviewData() {
       console.log('📄 Fetching area submissions for application:', applicationId);
 
       // Get actual submissions from database
-      const { data: submissionsData, error: submissionsError } = await supabase
-        .from('area_submissions')
-        .select('*')
-        .eq('application_id', applicationId);
-      
-      if (submissionsError) throw submissionsError;
+      const submissionsData = await apiRequest(`/review/applications/${applicationId}/submissions`);
 
       const submissions = (submissionsData || []).map(submissionData => {
         const area = areas.find(a => a.area_id === submissionData.area_id);
@@ -459,10 +317,7 @@ export function useReviewData() {
           }
 
           try {
-            const response = await fetch(
-              `http://localhost:5000/review/submission-scoring/${submission.submission_id}`
-            );
-            const scoringData = await response.json();
+            const scoringData = await apiRequest(`/review/submission-scoring/${submission.submission_id}`);
             
             const totalScore = Number(scoringData.totalScore || 0);
             const areaMax = Number(submission.area?.max_possible_points || 85);

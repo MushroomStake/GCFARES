@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiRequest } from '../../lib/apiClient';
 
 const FIXED_EMAIL_DOMAIN = '@gordoncollege.edu.ph';
 
@@ -90,10 +91,9 @@ export default function AddUserModal({ selectedCycleId = '', departments = [], o
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/users/create', {
+      await apiRequest('/hr/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           email,
           name_first: form.firstName.trim(),
           name_middle: form.middleName.trim() || null,
@@ -104,13 +104,9 @@ export default function AddUserModal({ selectedCycleId = '', departments = [], o
           last_promotion_date: form.lastPromotionDate || null,
           password: form.password,
           cycle_id: selectedCycleId || null,
-        }),
+          status: 'ranking',
+        },
       });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create user');
-      }
 
       setForm({
         firstName: '',

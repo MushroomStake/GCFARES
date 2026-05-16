@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RANKING_RUBRICS } from '../../../data/rankingRubrics';
-import { supabase } from '../../../supabase';
+import { apiRequest } from '../../../lib/apiClient';
 import Loader from '../../../components/Loader';
 
 const RANKS = [
@@ -144,14 +144,10 @@ function getPublicFileUrl(storagePath) {
   if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
     return storagePath;
   }
-  
-  // Get Supabase project URL from supabase client
-  const supabaseUrl = supabase.supabaseUrl;
-  const bucket = 'documents'; // Default bucket name
-  
-  // Construct public URL: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
-  const publicUrl = `${supabaseUrl}/storage/v1/object/public/${bucket}/${storagePath}`;
-  return publicUrl;
+
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+  const origin = apiBaseUrl.replace(/\/api\/?$/, '');
+  return `${origin}/storage/${encodeURI(String(storagePath).replace(/^\/+/, ''))}`;
 }
 
 const CRITERIA_DEFINITIONS = {
@@ -554,19 +550,8 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
 
       try {
         console.log('[ScoringCriteriaPanel] Fetching criterion scores for submission:', submission.submission_id);
-        const { data: dbScores, error } = await supabase
-          .from('area_submission_criterion_scores')
-          .select('*')
-          .eq('submission_id', submission.submission_id);
-
-        if (error) {
-          console.warn('[ScoringCriteriaPanel] Error fetching criterion scores:', error);
-          if (String(submission?.submission_id) !== String(startedForSubmissionId)) return;
-          skipAutoSaveRef.current = true;
-          hasUnsavedUserEditsRef.current = false;
-          setDraftCriteriaScores(activeCriteria);
-          return;
-        }
+        const scoringData = await apiRequest(`/review/submission-scoring/${submission.submission_id}`);
+        const dbScores = Array.isArray(scoringData?.criteria) ? scoringData.criteria : [];
 
         // Create map of criterion_key -> score data
         const scoreMap = {};
@@ -620,23 +605,12 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
           submission_id: submission?.submission_id,
         });
         
-        const { data: submissions, error } = await supabase
-          .from('area_submissions')
-          .select('*')
-          .eq('application_id', submission?.application_id)
-          .eq('area_id', submission?.area_id);
+        const submissions = await apiRequest(`/review/applications/${submission?.application_id}/submissions`);
 
-        console.log('[ScoringCriteriaPanel] Supabase query result:', { 
+        console.log('[ScoringCriteriaPanel] Laravel query result:', {
           count: submissions?.length || 0,
-          submissions, 
-          error,
           query: { application_id: submission?.application_id, area_id: submission?.area_id }
         });
-
-        if (error) {
-          console.error('[ScoringCriteriaPanel] Supabase error:', error);
-          return;
-        }
 
         // Map submissions by raw and normalized part_id so nested parts like A.1/A.2 resolve correctly
         const partMap = {};
@@ -735,35 +709,15 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
 
         // First try: load rows for resolved cycle.
         if (Number.isFinite(cycleId) && cycleId > 0) {
-          const { data, error } = await supabase
-            .from('area_iv_student_evaluation_imports')
-            .select('*')
-            .eq('cycle_id', cycleId)
-            .order('created_at', { ascending: true });
-
-          if (error) {
-            throw error;
-          }
-
-          rows = data || [];
+          rows = await apiRequest(`/review/area-iv-imports?cycle_id=${cycleId}`) || [];
         }
 
         // Fallback: if active cycle has no rows, show latest imported cycle rows.
         if (rows.length === 0) {
-          const { data: allRows, error: allRowsError } = await supabase
-            .from('area_iv_student_evaluation_imports')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-          if (allRowsError) {
-            throw allRowsError;
-          }
-
-          if (Array.isArray(allRows) && allRows.length > 0) {
-            const latestCycleId = allRows[0].cycle_id;
-            rows = allRows
-              .filter((row) => Number(row.cycle_id) === Number(latestCycleId))
-              .reverse();
+          const latestRows = await apiRequest('/review/area-iv-imports?cycle_id=0').catch(() => []);
+          if (Array.isArray(latestRows) && latestRows.length > 0) {
+            const latestCycleId = latestRows[0].cycle_id;
+            rows = latestRows.filter((row) => Number(row.cycle_id) === Number(latestCycleId));
           }
         }
 

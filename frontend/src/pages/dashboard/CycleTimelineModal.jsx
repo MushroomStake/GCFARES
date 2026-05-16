@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../supabase';
+import { apiRequest } from '../../lib/apiClient';
 
 export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadline = false }) {
   const pad2 = (value) => String(value).padStart(2, '0');
@@ -71,23 +71,15 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
   useEffect(() => {
     const fetchLastCycle = async () => {
       if (cycle) return; // Skip if editing existing cycle
-      
+
       try {
-        const { data, error } = await supabase
-          .from('ranking_cycles')
-          .select('year')
-          .order('cycle_id', { ascending: false })
-          .limit(1);
-        
-        if (error) throw error;
-        if (data && data.length > 0) {
-          const lastYear = extractYearStart(data[0].year);
+        const cycles = await apiRequest('/review/cycles');
+        if (cycles && cycles.length > 0) {
+          const sorted = cycles.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          const last = sorted[0];
+          const lastYear = extractYearStart(last?.year);
           const nextYear = lastYear ? lastYear + 1 : '';
-          setForm(prev => ({
-            ...prev,
-            yearStart: lastYear,
-            yearEnd: nextYear,
-          }));
+          setForm(prev => ({ ...prev, yearStart: lastYear, yearEnd: nextYear }));
         }
       } catch (err) {
         console.warn('Could not fetch last cycle year:', err);
@@ -162,46 +154,40 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
       return;
     }
 
-    // Get the current logged-in user
-    const {
-      data: { user: sessionUser },
-      error: userError
-    } = await supabase.auth.getUser();
-    if (userError || !sessionUser) {
+    // Get the current logged-in user via backend token validation
+    let sessionUser = null;
+    try {
+      const token = localStorage.getItem('api_token');
+      if (!token) throw new Error('No api token');
+      const result = await apiRequest('/auth/validate', { method: 'POST', body: { token } });
+      if (result?.valid) sessionUser = result.user;
+      if (!sessionUser) throw new Error('Invalid session');
+    } catch (err) {
       alert('Could not get current user. Please log in again.');
       return;
     }
 
     // Fetch the user's row from the users table to get the integer id
     let userId;
-    let userRows, userRowError;
-    ({ data: userRows, error: userRowError } = await supabase
-      .from('users')
-      .select('user_id')
-      .eq('domain_email', sessionUser.email)
-      .limit(1));
-    if (!userRowError && userRows && userRows.length > 0) {
-      userId = userRows[0].user_id;
-    } else {
-      // If not found, create a new profile row for this user
-      const { data: inserted, error: insertError } = await supabase
-        .from('users')
-        .insert([
-          {
-            name_last: 'Admin',
-            name_first: 'System',
-            domain_email: sessionUser.email,
-            password_hash: 'supabase-auth',
-            role: 'HR',
-            created_at: new Date().toISOString(),
-          }
-        ])
-        .select('user_id');
-      if (insertError || !inserted || inserted.length === 0) {
-        alert('Could not create user profile in database.');
-        return;
+    try {
+      // Try to find user via backend users list
+      const users = await apiRequest('/hr/users');
+      const found = (users || []).find(u => String(u.domain_email).toLowerCase() === String(sessionUser.domain_email || sessionUser.email).toLowerCase());
+      if (found) {
+        userId = found.user_id;
+      } else {
+        // Create a minimal user via backend
+        const created = await apiRequest('/hr/users', { method: 'POST', body: {
+          email: sessionUser.domain_email || sessionUser.email,
+          name_first: 'System',
+          name_last: 'Admin',
+          password: 'ChangeMe!23'
+        }});
+        userId = created.user_id;
       }
-      userId = inserted[0].user_id;
+    } catch (e) {
+      alert('Could not create or locate user profile: ' + (e.message || e));
+      return;
     }
 
     const cycleData = {
@@ -245,31 +231,13 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
       console.log('💾 Saving cycle data:', cleanedData);
       
       if (cycle?.cycle_id) {
-        // Update cycle in Supabase
-        const { error } = await supabase
-          .from('ranking_cycles')
-          .update(cleanedData)
-          .eq('cycle_id', cycle.cycle_id);
-        if (error) throw error;
+        // Update via backend
+        await apiRequest(`/hr/cycles/${encodeURIComponent(cycle.cycle_id)}`, { method: 'PATCH', body: cleanedData });
         console.log('✅ Cycle updated successfully');
       } else {
-        // Insert new cycle in Supabase
-        const { data, error } = await supabase
-          .from('ranking_cycles')
-          .insert([cleanedData]);
-        if (error) throw error;
-        console.log('✅ New cycle created:', data);
-
-        // Reset all 'ranking' users to 'inactive' for the new cycle
-        const { error: resetError } = await supabase
-          .from('users')
-          .update({ status: 'inactive' })
-          .eq('status', 'ranking');
-        if (resetError) {
-          console.warn('⚠️ Warning: Could not reset users for new cycle:', resetError.message);
-        } else {
-          console.log('✅ All ranking users reset to inactive for new cycle');
-        }
+        // Create new cycle via backend
+        const created = await apiRequest('/hr/cycles', { method: 'POST', body: cleanedData });
+        console.log('✅ New cycle created:', created);
       }
       onSaved();
     } catch (err) {
@@ -451,10 +419,10 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
 
         <div className="modal-footer">
           <button className="btn btn-save" onClick={handleSave} disabled={saving}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 01-2 2z"/>
-              <polyline points="17 21 17 13 7 13 7 21"/>
-              <polyline points="7 3 7 8 15 8"/>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" xmlns="http://www.w3.org/2000/svg">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <path d="M8 7h8v5H8z" />
+              <path d="M8 13h8v4H8z" />
             </svg>
             {saving ? 'Saving…' : 'Save Changes'}
           </button>

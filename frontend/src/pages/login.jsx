@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabase';
+import { apiRequest } from '../lib/apiClient';
 import './login.css';
 
 export default function Login() {
@@ -15,13 +15,10 @@ export default function Login() {
     setError('');
     try {
       const fullEmail = email.includes('@') ? email : `${email}@gordoncollege.edu.ph`;
-      const { error } = await supabase.auth.signInWithPassword({
-        email: fullEmail,
-        password,
-      });
-      if (error) {
-        throw new Error(error.message);
-      }
+      const result = await apiRequest('/auth/login', { method: 'POST', body: { email: fullEmail, password } });
+      const token = result?.token;
+      if (!token) throw new Error(result?.error || 'Login failed');
+      localStorage.setItem('api_token', token);
       navigate('/dashboard');
     } catch (err) {
       setError(err.message);
