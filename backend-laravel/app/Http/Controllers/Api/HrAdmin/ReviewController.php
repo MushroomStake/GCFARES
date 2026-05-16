@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Database\Schema\Blueprint;
 
 class ReviewController extends Controller
 {
@@ -76,6 +79,8 @@ class ReviewController extends Controller
         if (!$cycleId) {
             return response()->json([]);
         }
+
+        $this->ensureCycleApplications((int) $cycleId);
 
         $applications = DB::table('applications as app')
             ->join('users as faculty', 'faculty.user_id', '=', 'app.faculty_id')
@@ -200,6 +205,129 @@ class ReviewController extends Controller
         return response()->json($payload);
     }
 
+    private function ensureCycleApplications(int $cycleId): void
+    {
+        $acceptedFacultyIds = DB::table('cycle_participants')
+            ->where('cycle_id', $cycleId)
+            ->where('status', 'accepted')
+            ->whereNotNull('faculty_id')
+            ->pluck('faculty_id')
+            ->map(static fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        if ($acceptedFacultyIds->isEmpty()) {
+            return;
+        }
+
+        $existingFacultyIds = DB::table('applications')
+            ->where('cycle_id', $cycleId)
+            ->whereIn('faculty_id', $acceptedFacultyIds->all())
+            ->pluck('faculty_id')
+            ->map(static fn ($id) => (int) $id)
+            ->unique();
+
+        $missingFacultyIds = $acceptedFacultyIds
+            ->reject(static fn ($facultyId) => $existingFacultyIds->contains((int) $facultyId))
+            ->values();
+
+        if ($missingFacultyIds->isEmpty()) {
+            return;
+        }
+
+        $firstActivePositionId = DB::table('positions')
+            ->where('is_active', 1)
+            ->orderBy('position_id')
+            ->value('position_id');
+
+        if (!$firstActivePositionId) {
+            $firstActivePositionId = DB::table('positions')
+                ->orderBy('position_id')
+                ->value('position_id');
+        }
+
+        if (!$firstActivePositionId) {
+            $firstActivePositionId = DB::table('positions')->insertGetId([
+                'position_name' => 'Instructor I',
+                'description' => 'Auto-generated default position for cycle bootstrap',
+                'required_area_count' => 10,
+                'is_active' => 1,
+            ]);
+        }
+
+        $users = DB::table('users')
+            ->whereIn('user_id', $missingFacultyIds->all())
+            ->get()
+            ->keyBy('user_id');
+
+        $now = now();
+
+        foreach ($missingFacultyIds as $facultyId) {
+            $user = $users->get((int) $facultyId);
+            if (!$user) {
+                continue;
+            }
+
+            $targetPositionId = $this->resolveTargetPositionId($user, $firstActivePositionId);
+            if (!$targetPositionId) {
+                continue;
+            }
+
+            DB::table('applications')->insert([
+                'application_number' => sprintf('APP-%d-%d-%s', $cycleId, $facultyId, strtoupper(Str::random(6))),
+                'faculty_id' => (int) $facultyId,
+                'current_rank_at_time' => (string) ($user->current_rank ?: 'Not specified'),
+                'target_position_id' => (int) $targetPositionId,
+                'cycle_id' => $cycleId,
+                'status' => 'Draft',
+                'hr_score' => 0,
+                'final_score' => 0,
+                'created_at' => $now,
+            ]);
+        }
+    }
+
+    private function resolveTargetPositionId(object $user, mixed $fallbackPositionId): ?int
+    {
+        $candidateNames = [];
+
+        $jsonRaw = $user->applying_for_json ?? null;
+        $decoded = is_string($jsonRaw) ? json_decode($jsonRaw, true) : $jsonRaw;
+        if (is_array($decoded)) {
+            foreach ($decoded as $value) {
+                if (is_string($value) && trim($value) !== '') {
+                    $candidateNames[] = trim($value);
+                }
+            }
+        }
+
+        if (empty($candidateNames) && !empty($user->applying_for)) {
+            $parts = preg_split('/\s*,\s*/', (string) $user->applying_for) ?: [];
+            foreach ($parts as $part) {
+                if (trim((string) $part) !== '') {
+                    $candidateNames[] = trim((string) $part);
+                }
+            }
+        }
+
+        foreach ($candidateNames as $positionName) {
+            $positionId = DB::table('positions')
+                ->where('is_active', 1)
+                ->where('position_name', $positionName)
+                ->value('position_id');
+
+            if ($positionId) {
+                return (int) $positionId;
+            }
+        }
+
+        if ($fallbackPositionId) {
+            return (int) $fallbackPositionId;
+        }
+
+        return null;
+    }
+
     public function submissions(int $applicationId)
     {
         $rows = DB::table('area_submissions as s')
@@ -257,6 +385,9 @@ class ReviewController extends Controller
             'qual_eligibility' => ['nullable', 'string'],
         ]);
 
+        $validated['hr_completed_at'] = $this->normalizeDateTimeValue($validated['hr_completed_at'] ?? null);
+        $validated['vpaa_completed_at'] = $this->normalizeDateTimeValue($validated['vpaa_completed_at'] ?? null);
+
         DB::table('applications')
             ->where('application_id', $applicationId)
             ->update(array_filter($validated, static fn ($value) => $value !== null));
@@ -264,6 +395,43 @@ class ReviewController extends Controller
         $updated = DB::table('applications')->where('application_id', $applicationId)->first();
 
         return response()->json($updated);
+    }
+
+    private function normalizeDateTimeValue(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
+        }
+
+        $text = trim((string) $value);
+
+        $formats = [
+            'Y-m-d\TH:i:s.u\Z',
+            'Y-m-d\TH:i:s\Z',
+            'Y-m-d\TH:i:s.uP',
+            'Y-m-d\TH:i:sP',
+            'Y-m-d H:i:s',
+            'Y-m-d H:i',
+            DATE_ATOM,
+            DATE_RFC3339_EXTENDED,
+        ];
+
+        foreach ($formats as $format) {
+            $parsed = \DateTimeImmutable::createFromFormat($format, $text);
+            if ($parsed instanceof \DateTimeImmutable) {
+                return $parsed->format('Y-m-d H:i:s');
+            }
+        }
+
+        try {
+            return (new \DateTimeImmutable($text))->format('Y-m-d H:i:s');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     public function upsertAreaScore(Request $request)
@@ -363,6 +531,8 @@ class ReviewController extends Controller
 
     public function submissionScoring(Request $request, string $submissionId)
     {
+        $this->ensureCriterionScoreTable();
+
         $submission = DB::table('area_submissions as s')
             ->join('areas as a', 'a.area_id', '=', 's.area_id')
             ->where('s.submission_id', $submissionId)
@@ -402,6 +572,8 @@ class ReviewController extends Controller
 
     public function updateSubmissionScoring(Request $request, string $submissionId)
     {
+        $this->ensureCriterionScoreTable();
+
         $validated = $request->validate([
             'criteria' => ['required', 'array'],
             'criteria.*.criterion_key' => ['required', 'string', 'max:255'],
@@ -550,6 +722,37 @@ class ReviewController extends Controller
             'totalScore' => $totalScore,
             'application' => DB::table('applications')->where('application_id', $applicationId)->first(),
         ]);
+    }
+
+    private function ensureCriterionScoreTable(): void
+    {
+        if (Schema::hasTable('area_submission_criterion_scores')) {
+            return;
+        }
+
+        Schema::create('area_submission_criterion_scores', function (Blueprint $table) {
+            $table->bigIncrements('criterion_score_id');
+            $table->unsignedBigInteger('submission_id');
+            $table->unsignedBigInteger('application_id');
+            $table->unsignedBigInteger('area_id');
+            $table->string('part_id')->nullable();
+            $table->string('criterion_key');
+            $table->string('criterion_label')->nullable();
+            $table->text('criterion_title')->nullable();
+            $table->decimal('criterion_max_points', 10, 2)->default(0);
+            $table->decimal('score', 10, 2)->default(0);
+            $table->decimal('capped_score', 10, 2)->default(0);
+            $table->decimal('excess_score', 10, 2)->default(0);
+            $table->timestamp('reviewed_at')->nullable();
+            $table->unsignedBigInteger('reviewed_by')->nullable();
+            $table->text('notes')->nullable();
+            $table->timestamps();
+
+            $table->unique(['submission_id', 'criterion_key'], 'area_submission_criterion_scores_unique');
+            $table->index('submission_id');
+            $table->index('application_id');
+            $table->index('area_id');
+        });
     }
 
     public function areaIvImports(Request $request)

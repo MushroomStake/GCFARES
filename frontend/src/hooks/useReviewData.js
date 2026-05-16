@@ -63,10 +63,26 @@ export function useReviewData() {
       if (showLoader) setLoading(true);
       console.log('📊 Fetching applications data (Laravel API)...');
 
-      // Get all cycles and find the active one
+      // Get all cycles and pick one that actually has applications.
       const allCycles = await apiRequest('/review/cycles');
 
-      const activeCycle = (allCycles || [])[0] || null;
+      const cycles = Array.isArray(allCycles) ? allCycles : [];
+      let activeCycle = null;
+      let rawApplicationsForCycle = [];
+
+      for (const cycle of cycles) {
+        const rows = await apiRequest(`/review/applications?cycle_id=${cycle.cycle_id}`);
+        const apps = Array.isArray(rows) ? rows : [];
+        if (apps.length > 0) {
+          activeCycle = cycle;
+          rawApplicationsForCycle = apps;
+          break;
+        }
+      }
+
+      if (!activeCycle && cycles.length > 0) {
+        activeCycle = cycles[0];
+      }
 
       if (!activeCycle) {
         console.warn('❌ No active cycle found');
@@ -87,7 +103,12 @@ export function useReviewData() {
       const participantsData = await apiRequest(`/review/cycles/${activeCycle.cycle_id}/participants`);
 
       let participantFacultyIds = Array.from(
-        new Set((participantsData || []).filter((p) => String(p.status).toLowerCase() === 'accepted').map(p => p.faculty_id).filter(Boolean))
+        new Set(
+          (participantsData || [])
+            .filter((p) => String(p.status || '').toLowerCase() === 'accepted')
+            .map((p) => Number(p.faculty_id))
+            .filter((id) => Number.isFinite(id))
+        )
       );
 
       // Fallback: include any participants if no accepted ones found
@@ -96,21 +117,50 @@ export function useReviewData() {
 
         if (anyParticipants.length > 0) {
           participantFacultyIds = Array.from(
-            new Set(anyParticipants.map(p => p.faculty_id).filter(Boolean))
+            new Set(
+              anyParticipants
+                .map((p) => Number(p.faculty_id))
+                .filter((id) => Number.isFinite(id))
+            )
           );
-        } else {
-          setApplications([]);
-          return;
         }
       }
+
+      console.log('ℹ️ Participants for cycle:', {
+        cycle_id: activeCycle.cycle_id,
+        total_participants: (participantsData || []).length,
+        accepted_participants: participantFacultyIds.length,
+      });
 
       // Get areas and departments for enrichment
       const areasData = await apiRequest('/review/areas');
       setAreas(areasData || []);
 
-      // Get applications for participants in this cycle
-      const applicationsData = (await apiRequest(`/review/applications?cycle_id=${activeCycle.cycle_id}`))
-        .filter((application) => participantFacultyIds.includes(application.faculty_id));
+      // Get applications for this cycle, then narrow to participants only when possible.
+      const rawApplications = rawApplicationsForCycle.length > 0
+        ? rawApplicationsForCycle
+        : (await apiRequest(`/review/applications?cycle_id=${activeCycle.cycle_id}`));
+
+      const normalizedRawApplications = Array.isArray(rawApplications) ? rawApplications : [];
+
+      let applicationsData = normalizedRawApplications;
+      if (participantFacultyIds.length > 0) {
+        const filteredByParticipants = normalizedRawApplications.filter((application) => {
+          const facultyId = Number(application.faculty_id);
+          return Number.isFinite(facultyId) && participantFacultyIds.includes(facultyId);
+        });
+
+        // If participant matching removes everything due to data mismatch, keep cycle applications.
+        applicationsData = filteredByParticipants.length > 0
+          ? filteredByParticipants
+          : normalizedRawApplications;
+      }
+
+      console.log('ℹ️ Applications fetched for cycle:', {
+        cycle_id: activeCycle.cycle_id,
+        raw_cycle_applications: normalizedRawApplications.length,
+        post_participant_filter: applicationsData.length,
+      });
 
       // Track submission counts per application
       const applicationIdsForCycle = (applicationsData || []).map(app => app.application_id);
@@ -183,12 +233,6 @@ export function useReviewData() {
       for (const appData of cycleScopedApplications) {
         const facultyData = appData.faculty;
         if (!facultyData) continue;
-
-        const isRankingFaculty = (facultyData?.status || appData.faculty_status || '').toString().trim().toLowerCase() === 'ranking';
-        const hasSubmittedFiles = (submissionCountByApplicationId.get(appData.application_id) || 0) > 0;
-
-        // Show if faculty is ranking OR has submitted files
-        if (!isRankingFaculty && !hasSubmittedFiles) continue;
 
         // Skip VPAA users
         if ((facultyData?.role || '').toString().trim().toLowerCase() === 'vpaa') continue;

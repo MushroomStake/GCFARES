@@ -154,41 +154,9 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
       return;
     }
 
-    // Get the current logged-in user via backend token validation
-    let sessionUser = null;
-    try {
-      const token = localStorage.getItem('api_token');
-      if (!token) throw new Error('No api token');
-      const result = await apiRequest('/auth/validate', { method: 'POST', body: { token } });
-      if (result?.valid) sessionUser = result.user;
-      if (!sessionUser) throw new Error('Invalid session');
-    } catch (err) {
-      alert('Could not get current user. Please log in again.');
-      return;
-    }
-
-    // Fetch the user's row from the users table to get the integer id
-    let userId;
-    try {
-      // Try to find user via backend users list
-      const users = await apiRequest('/hr/users');
-      const found = (users || []).find(u => String(u.domain_email).toLowerCase() === String(sessionUser.domain_email || sessionUser.email).toLowerCase());
-      if (found) {
-        userId = found.user_id;
-      } else {
-        // Create a minimal user via backend
-        const created = await apiRequest('/hr/users', { method: 'POST', body: {
-          email: sessionUser.domain_email || sessionUser.email,
-          name_first: 'System',
-          name_last: 'Admin',
-          password: 'ChangeMe!23'
-        }});
-        userId = created.user_id;
-      }
-    } catch (e) {
-      alert('Could not create or locate user profile: ' + (e.message || e));
-      return;
-    }
+    // Use the same stable admin id that the backend uses for period management.
+    // This avoids depending on a separate user create/lookup flow when reopening or locking a period.
+    const userId = 2;
 
     const cycleData = {
       title,
@@ -219,7 +187,7 @@ export default function CycleTimelineModal({ cycle, onClose, onSaved, focusDeadl
     setSaving(true);
     try {
       // Validate that all required fields are defined
-      const requiredFields = ['title', 'year', 'semester', 'start_date', 'deadline', 'status', 'created_at', 'created_by'];
+      const requiredFields = ['title', 'year', 'semester', 'start_date', 'deadline', 'status'];
       const missingFields = requiredFields.filter(field =>
         cleanedData[field] === undefined || cleanedData[field] === null
       );

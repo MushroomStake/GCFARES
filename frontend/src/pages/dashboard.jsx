@@ -284,7 +284,7 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
   };
 
   const getStatusBadge = () => {
-    // Use the cycle's status field first, then fall back to date logic
+    // Prefer workflow state over schedule state so the dashboard reflects the active period.
     if (cycle.status === 'finished') {
       return { class: 'badge-closed', text: 'Finished' };
     }
@@ -294,22 +294,7 @@ function CycleCard({ cycle, onEdit, onCycleAction }) {
     }
 
     if (cycle.status === 'open') {
-      // For open cycles, check if they've actually started based on dates
-      const now = new Date();
-      const start = cycle.start_date?.toDate ? cycle.start_date.toDate() : new Date(cycle.start_date);
-      const end = cycle.deadline?.toDate ? cycle.deadline.toDate() : new Date(cycle.deadline);
-
-      // Compare dates only (ignore time) for start date check
-      const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-      
-      if (nowDate < startDate) {
-        return { class: 'badge-inactive', text: 'Not Started' };
-      }
-      if (now > end) {
-        return { class: 'badge-warning', text: 'Overdue' };
-      }
-      return { class: 'badge-progress', text: 'In Progress' };
+      return { class: 'badge-progress', text: 'Active' };
     }
     
     // Default fallback
@@ -1011,6 +996,17 @@ export default function Dashboard() {
   const [pastSearchTerm, setPastSearchTerm] = useState('');
   const [pastDepartmentFilter, setPastDepartmentFilter] = useState('all');
 
+  const normalizeProfileEditOpen = (value) => {
+    if (value === true || value === false) return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['1', 'true', 'yes', 'open', 'open for faculty editing'].includes(normalized)) return true;
+      if (['0', 'false', 'no', 'locked', 'closed'].includes(normalized)) return false;
+    }
+    return Boolean(value);
+  };
+
   // importer is embedded in the dashboard UI now
 
   const handleReviewCycle = async (cycleId) => {
@@ -1508,6 +1504,10 @@ export default function Dashboard() {
 
       const sortedCycles = (allCycles || [])
         .slice()
+        .map((cycle) => ({
+          ...cycle,
+          profile_edit_open: normalizeProfileEditOpen(cycle?.profile_edit_open),
+        }))
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
       // Find the active cycle by priority: open first, then submissions_closed.
@@ -1722,7 +1722,7 @@ export default function Dashboard() {
 
       // 'open' and 'reopen' both set status to 'open' and enable profile editing
       console.log(`ðŸ”„ Updating cycle ${currentCycle.cycle_id} status to: open`);
-      await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { status: 'open', profile_edit_open: true } });
+      await apiRequest(`/hr/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { status: 'open', profile_edit_open: true } });
       console.log('✅ Cycle reopened successfully');
       fetchData({ showLoader: false }); // Refresh data silently
     } catch (err) {
@@ -1737,18 +1737,18 @@ export default function Dashboard() {
     try {
       if (actionModal.action === 'lock-profile' || actionModal.action === 'unlock-profile') {
         const nextProfileEditOpen = actionModal.action === 'unlock-profile';
-        await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { profile_edit_open: nextProfileEditOpen } });
+        await apiRequest(`/hr/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { profile_edit_open: nextProfileEditOpen } });
         console.log(`✅ Profile access ${nextProfileEditOpen ? 'unlocked' : 'locked'} successfully`);
       }
 
       if (actionModal.action === 'finish') {
         // Finalize cycle via backend which handles updating cycle, resetting users, and participants
-        await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}/finalize`, { method: 'POST', body: {} });
+        await apiRequest(`/hr/cycles/${encodeURIComponent(currentCycle.cycle_id)}/finalize`, { method: 'POST', body: {} });
         console.log('✅ Evaluation finalized successfully');
       }
 
       if (actionModal.action === 'close') {
-        await apiRequest(`/review/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { status: 'submissions_closed' } });
+        await apiRequest(`/hr/cycles/${encodeURIComponent(currentCycle.cycle_id)}`, { method: 'PATCH', body: { status: 'submissions_closed' } });
         console.log('✅ Submissions closed successfully');
       }
 

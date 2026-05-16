@@ -33,6 +33,29 @@ function getFirstValue(source, keys, fallback = null) {
   }
   return fallback;
 }
+function parseArrayField(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function toDateInputValue(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  const directMatch = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (directMatch) return directMatch[1];
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
 
 function normalizeEducationEntry(entry) {
         if (typeof entry === 'string') return { level: 'Credential', degree: entry, institution: '', yearGraduated: '', pending: false };
@@ -46,23 +69,23 @@ function normalizeEducationEntry(entry) {
     }
 
     function normalizeEligibilityEntry(entry) {
-        if (typeof entry === 'string') return { text: entry, examName: entry, datePassed: '', pending: false };
-        return {
-            text: String(getFirstValue(entry, ['text', 'name', 'title'], 'Eligibility')),
-            examName: String(getFirstValue(entry, ['examName', 'name', 'text'], '')),
-            datePassed: String(getFirstValue(entry, ['datePassed', 'date'], '')),
-            pending: Boolean(getFirstValue(entry, ['pending'], false)),
-        };
+      if (typeof entry === 'string') return { text: entry, examName: entry, datePassed: '', pending: false };
+      return {
+        text: String(getFirstValue(entry, ['text', 'name', 'title'], 'Eligibility')),
+        examName: String(getFirstValue(entry, ['examName', 'name', 'text'], '')),
+        datePassed: String(getFirstValue(entry, ['datePassed', 'date'], '')),
+        pending: Boolean(getFirstValue(entry, ['pending'], false)),
+      };
     }
 
     function normalizeDoctorateEntry(entry) {
-        if (typeof entry === 'string') return { degree: entry, institution: '', yearGraduated: '', pending: false };
-        return {
-            degree: String(getFirstValue(entry, ['degree', 'title', 'name'], 'Untitled degree')),
-            institution: String(getFirstValue(entry, ['institution', 'school', 'meta'], '')),
-            yearGraduated: String(getFirstValue(entry, ['yearGraduated', 'year'], '')),
-            pending: Boolean(getFirstValue(entry, ['pending'], false)),
-        };
+      if (typeof entry === 'string') return { degree: entry, institution: '', yearGraduated: '', pending: false };
+      return {
+        degree: String(getFirstValue(entry, ['degree', 'title', 'name'], 'Untitled degree')),
+        institution: String(getFirstValue(entry, ['institution', 'school', 'meta'], '')),
+        yearGraduated: String(getFirstValue(entry, ['yearGraduated', 'year'], '')),
+        pending: Boolean(getFirstValue(entry, ['pending'], false)),
+      };
     }
 
     function buildEducationPayload(educationList) {
@@ -158,7 +181,7 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
       if (Array.isArray(v)) return v;
       return String(v).split(/\s*,\s*/).filter(Boolean);
     })(),
-    lastPromotionDate: faculty?.lastPromotionDate ?? '',
+    lastPromotionDate: toDateInputValue(faculty?.lastPromotionDate),
     status: faculty?.status ?? 'ranking',
   });
 
@@ -499,20 +522,20 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
               <div key={i} className="edu-item" style={{ padding: '12px', border: '1px solid #ddd', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{e.degree}</div>
-                  <small style={{ color: '#666' }}>{e.school}</small>
+                  <small style={{ color: '#666' }}>{e.institution || e.school || ''}</small>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
-                  <button className="icon-del-btn" onClick={() => { setEditEduIndex(i); setEduModalOpen(true); }} title="Edit">
+                  <button type="button" className="icon-del-btn" onClick={() => { setEditEduIndex(i); setEduModalOpen(true); }} title="Edit">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </button>
-                  <button className="icon-del-btn" onClick={() => handleDeleteEdu(i)} title="Delete">
+                  <button type="button" className="icon-del-btn" onClick={() => handleDeleteEdu(i)} title="Delete">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   </button>
                 </div>
               </div>
             ))}
           </div>
-          <button className="icon-add-btn" onClick={() => { setEditEduIndex(null); setEduModalOpen(true); }} style={{ marginBottom: '24px', display: 'block' }}>
+          <button type="button" className="icon-add-btn" onClick={() => { setEditEduIndex(null); setEduModalOpen(true); }} style={{ marginBottom: '24px', display: 'block' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '14px', height: '14px', display: 'inline', marginRight: '4px' }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Education
           </button>
 
@@ -525,16 +548,16 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
             {eligibilityList.map((e, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px', backgroundColor: '#f3f4f6', borderRadius: '6px' }}>
                 <span style={{ flex: 1, fontWeight: '500' }}>{e.text}</span>
-                <button className="icon-del-btn" onClick={() => { setEditEligIndex(i); setEligModalOpen(true); }} title="Edit" style={{ padding: '4px 8px' }}>
+                <button type="button" className="icon-del-btn" onClick={() => { setEditEligIndex(i); setEligModalOpen(true); }} title="Edit" style={{ padding: '4px 8px' }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '14px', height: '14px', display: 'inline' }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
-                <button className="icon-del-btn" onClick={() => handleDeleteElig(i)} title="Delete" style={{ padding: '4px 8px' }}>
+                <button type="button" className="icon-del-btn" onClick={() => handleDeleteElig(i)} title="Delete" style={{ padding: '4px 8px' }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '14px', height: '14px', display: 'inline' }}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
             ))}
           </div>
-          <button className="icon-add-btn" onClick={() => { setEditEligIndex(null); setEligModalOpen(true); }} style={{ marginBottom: '24px', display: 'block' }}>
+          <button type="button" className="icon-add-btn" onClick={() => { setEditEligIndex(null); setEligModalOpen(true); }} style={{ marginBottom: '24px', display: 'block' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '14px', height: '14px', display: 'inline', marginRight: '4px' }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Eligibility
           </button>
 
@@ -548,20 +571,20 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
               <div key={i} style={{ padding: '12px', border: '1px solid #ddd', borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{d.degree}</div>
-                  <small style={{ color: '#666' }}>{d.school}</small>
+                  <small style={{ color: '#666' }}>{d.institution || d.school || ''}</small>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
-                  <button className="icon-del-btn" onClick={() => { setEditDoctoralIndex(i); setDoctoralModalOpen(true); }} title="Edit">
+                  <button type="button" className="icon-del-btn" onClick={() => { setEditDoctoralIndex(i); setDoctoralModalOpen(true); }} title="Edit">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </button>
-                  <button className="icon-del-btn" onClick={() => handleDeleteDoctoral(i)} title="Delete">
+                  <button type="button" className="icon-del-btn" onClick={() => handleDeleteDoctoral(i)} title="Delete">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '16px', height: '16px' }}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   </button>
                 </div>
               </div>
             ))}
           </div>
-          <button className="icon-add-btn" onClick={() => { setEditDoctoralIndex(null); setDoctoralModalOpen(true); }} style={{ marginBottom: '24px', display: 'block' }}>
+          <button type="button" className="icon-add-btn" onClick={() => { setEditDoctoralIndex(null); setDoctoralModalOpen(true); }} style={{ marginBottom: '24px', display: 'block' }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '14px', height: '14px', display: 'inline', marginRight: '4px' }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Doctorate
           </button>
 
@@ -621,6 +644,8 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
             } else {
               handleAddEdu(data);
             }
+            setEduModalOpen(false);
+            setEditEduIndex(null);
           }}
           isLoading={false}
         />
@@ -634,6 +659,8 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
             } else {
               handleAddElig(data);
             }
+            setEligModalOpen(false);
+            setEditEligIndex(null);
           }}
           isLoading={false}
         />
@@ -647,6 +674,8 @@ function EditPanel({ faculty, onClose, onSaved, departments = [], selectedCycleI
             } else {
               handleAddDoctoral(data);
             }
+            setDoctoralModalOpen(false);
+            setEditDoctoralIndex(null);
           }}
           isLoading={false}
         />
@@ -733,9 +762,9 @@ export default function UserManagement() {
       const mapped = (data || [])
         .filter((u) => (u?.role || '').toString().trim().toLowerCase() !== 'vpaa')
         .map((u) => {
-        const eduList = Array.isArray(u.educational_attainment_json) ? u.educational_attainment_json.map(normalizeEducationEntry) : [];
-        const eligList = Array.isArray(u.eligibility_exams_json) ? u.eligibility_exams_json.map(normalizeEligibilityEntry) : [];
-        const docList = Array.isArray(u.doctorate) ? u.doctorate.map(normalizeDoctorateEntry) : [];
+        const eduList = parseArrayField(u.educational_attainment_json).map(normalizeEducationEntry);
+        const eligList = parseArrayField(u.eligibility_exams_json).map(normalizeEligibilityEntry);
+        const docList = parseArrayField(u.doctorate).map(normalizeDoctorateEntry);
 
         // Determine status: if they're an active participant in current cycle, they should be 'ranking'
         // Don't change status based on application HR_Completed - only based on cycle participation
@@ -768,10 +797,10 @@ export default function UserManagement() {
           // Other fields
           natureOfAppointment: u.nature_of_appointment ?? 'Permanent',
           currentSalary: u.current_salary ?? '',
-          applyingFor: Array.isArray(u.applying_for_json)
-            ? u.applying_for_json
+          applyingFor: parseArrayField(u.applying_for_json).length > 0
+            ? parseArrayField(u.applying_for_json)
             : (u.applying_for ? String(u.applying_for).split(/\s*,\s*/).filter(Boolean) : []),
-          lastPromotionDate: u.last_promotion_date ?? '',
+          lastPromotionDate: toDateInputValue(u.last_promotion_date ?? u.date_of_last_promotion),
         };
       });
 

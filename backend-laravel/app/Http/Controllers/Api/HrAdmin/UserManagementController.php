@@ -276,12 +276,12 @@ class UserManagementController extends Controller
     public function updateCycle(Request $request, int $cycleId)
     {
         $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'year' => ['required', 'string', 'max:50'],
-            'semester' => ['required', 'string', 'max:100'],
-            'start_date' => ['required', 'date_format:Y-m-d\TH:i:s.000\Z'],
-            'deadline' => ['required', 'date_format:Y-m-d\TH:i:s.000\Z'],
-            'status' => ['required', Rule::in(['open', 'submissions_closed', 'finished', 'closed'])],
+            'title' => ['nullable', 'string', 'max:255'],
+            'year' => ['nullable', 'string', 'max:50'],
+            'semester' => ['nullable', 'string', 'max:100'],
+            'start_date' => ['nullable', 'date_format:Y-m-d\TH:i:s.000\Z'],
+            'deadline' => ['nullable', 'date_format:Y-m-d\TH:i:s.000\Z'],
+            'status' => ['nullable', Rule::in(['open', 'submissions_closed', 'finished', 'closed'])],
             'profile_edit_start' => ['nullable', 'date_format:Y-m-d\TH:i:s.000\Z'],
             'profile_edit_deadline' => ['nullable', 'date_format:Y-m-d\TH:i:s.000\Z'],
             'profile_edit_open' => ['nullable', 'boolean'],
@@ -290,16 +290,18 @@ class UserManagementController extends Controller
         // Convert ISO 8601 format to MySQL datetime format
         $formatDate = fn($isoDate) => $isoDate ? \DateTime::createFromFormat('Y-m-d\TH:i:s.000\Z', $isoDate)?->format('Y-m-d H:i:s') : null;
 
+        $existing = DB::table('ranking_cycles')->where('cycle_id', $cycleId)->first();
+
         DB::table('ranking_cycles')->where('cycle_id', $cycleId)->update([
-            'title' => $validated['title'],
-            'year' => $validated['year'],
-            'semester' => $validated['semester'],
-            'start_date' => $formatDate($validated['start_date']),
-            'deadline' => $formatDate($validated['deadline']),
-            'status' => $validated['status'],
-            'profile_edit_start' => $formatDate($validated['profile_edit_start']),
-            'profile_edit_deadline' => $formatDate($validated['profile_edit_deadline']),
-            'profile_edit_open' => $validated['profile_edit_open'] ?? false,
+            'title' => $validated['title'] ?? $existing->title,
+            'year' => $validated['year'] ?? $existing->year,
+            'semester' => $validated['semester'] ?? $existing->semester,
+            'start_date' => array_key_exists('start_date', $validated) ? $formatDate($validated['start_date']) : $existing->start_date,
+            'deadline' => array_key_exists('deadline', $validated) ? $formatDate($validated['deadline']) : $existing->deadline,
+            'status' => $validated['status'] ?? $existing->status,
+            'profile_edit_start' => array_key_exists('profile_edit_start', $validated) ? $formatDate($validated['profile_edit_start']) : $existing->profile_edit_start,
+            'profile_edit_deadline' => array_key_exists('profile_edit_deadline', $validated) ? $formatDate($validated['profile_edit_deadline']) : $existing->profile_edit_deadline,
+            'profile_edit_open' => $validated['profile_edit_open'] ?? $existing->profile_edit_open ?? false,
         ]);
 
         return response()->json(

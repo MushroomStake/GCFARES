@@ -234,7 +234,8 @@ export default function Review() {
     }
 
     try {
-      const now = new Date().toISOString();
+      const now = new Date();
+      const mysqlNow = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
       await apiRequest(`/review/applications/${reviewData.selectedApplication.id}`, {
         method: 'PATCH',
@@ -245,7 +246,7 @@ export default function Review() {
           qual_research: qualifications.qual_research,
           qual_eligibility: qualifications.qual_eligibility,
           status: 'HR_Completed',
-          hr_completed_at: now,
+          hr_completed_at: mysqlNow,
         },
       });
 
@@ -257,7 +258,7 @@ export default function Review() {
         qual_research: qualifications.qual_research,
         qual_eligibility: qualifications.qual_eligibility,
         status: 'HR_Completed',
-        hr_completed_at: now,
+        hr_completed_at: mysqlNow,
       };
 
       reviewData.setSelectedApplication(updatedSelectedApplication);
