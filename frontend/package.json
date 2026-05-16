@@ -10,8 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.10.2",
-    "@supabase/supabase-js": "^2.105.3",
     "crypto-js": "^4.2.0",
     "exceljs": "^4.4.0",
     "firebase": "^12.10.0",

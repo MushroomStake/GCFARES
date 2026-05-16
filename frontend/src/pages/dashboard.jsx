@@ -8,7 +8,6 @@ import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
 import './dashboard.css';
 import { apiRequest } from '../lib/apiClient';
-import { supabase } from '../supabase';
 import AreaIVImportPanel from './review/components/AreaIVImportPanel';
 import Loader from '../components/Loader';
 import CycleTimelineModal from './dashboard/CycleTimelineModal';
@@ -1496,7 +1495,7 @@ export default function Dashboard() {
       setLoading(true);
     }
     try {
-      console.log('ðŸ”„ Starting data fetch (Supabase)...');
+      console.log('🔄 Starting data fetch (Laravel API)...');
 
       // Fetch all cycles from backend
       const allCycles = await apiRequest('/review/cycles');
@@ -1593,21 +1592,12 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
 
-    const dashboardChannel = supabase
-      .channel('dashboard-live-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
-        fetchData({ showLoader: false });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
-        fetchData({ showLoader: false });
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ranking_cycles' }, () => {
-        fetchData({ showLoader: false });
-      })
-      .subscribe();
+    const dashboardRefreshTimer = window.setInterval(() => {
+      fetchData({ showLoader: false });
+    }, 60000);
 
     return () => {
-      supabase.removeChannel(dashboardChannel);
+      window.clearInterval(dashboardRefreshTimer);
     };
   }, []);
 
@@ -1618,14 +1608,10 @@ export default function Dashboard() {
       void handleReviewCycle(selectedPastCycle.cycle_id);
     };
 
-    const pastCycleChannel = supabase
-      .channel(`dashboard-past-cycle-${selectedPastCycle.cycle_id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications', filter: `cycle_id=eq.${selectedPastCycle.cycle_id}` }, refreshPastCycle)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ranking_cycles', filter: `cycle_id=eq.${selectedPastCycle.cycle_id}` }, refreshPastCycle)
-      .subscribe();
+    const pastCycleRefreshTimer = window.setInterval(refreshPastCycle, 60000);
 
     return () => {
-      supabase.removeChannel(pastCycleChannel);
+      window.clearInterval(pastCycleRefreshTimer);
     };
   }, [selectedPastCycle?.cycle_id]);
 

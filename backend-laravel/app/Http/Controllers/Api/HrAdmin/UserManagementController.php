@@ -273,6 +273,54 @@ class UserManagementController extends Controller
         );
     }
 
+    public function finalizeCycle(Request $request, int $cycleId)
+    {
+        DB::beginTransaction();
+
+        try {
+            $cycle = DB::table('ranking_cycles')->where('cycle_id', $cycleId)->first();
+
+            if (!$cycle) {
+                DB::rollBack();
+                return response()->json(['error' => 'Cycle not found'], 404);
+            }
+
+            DB::table('ranking_cycles')
+                ->where('cycle_id', $cycleId)
+                ->update([
+                    'status' => 'finished',
+                    'profile_edit_open' => false,
+                ]);
+
+            DB::table('users')
+                ->where('status', 'ranking')
+                ->update(['status' => 'inactive']);
+
+            DB::table('cycle_participants')
+                ->where('cycle_id', $cycleId)
+                ->whereIn('status', ['invited', 'accepted'])
+                ->update([
+                    'status' => 'removed',
+                    'responded_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            DB::commit();
+
+            return response()->json([
+                'ok' => true,
+                'cycle' => DB::table('ranking_cycles')->where('cycle_id', $cycleId)->first(),
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'error' => 'Could not finalize cycle',
+                'details' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function updateCycle(Request $request, int $cycleId)
     {
         $validated = $request->validate([

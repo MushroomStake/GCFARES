@@ -1,6 +1,6 @@
 # HR Admin Frontend (Vite + React)
 
-This app is the HR Admin portal for the GCFARES system and connects directly to Supabase for auth and table operations.
+This app is the HR Admin portal for the GCFARES system and connects directly to the Laravel API and MySQL database.
 
 ## 1) Local Setup
 
@@ -11,73 +11,29 @@ npm install
 npm run dev
 ```
 
-## 2) Required Environment Variables
+## 2) Local Setup
 
-Create `.env` (or `.env.local`) in this `hradmin` folder:
+Install dependencies and run development server:
+
+```bash
+npm install
+npm run dev
+```
+
+## 3) Environment
+
+Set the API base and encryption key used by the Laravel backend in `.env` or `.env.local`:
 
 ```env
-VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+VITE_API_BASE_URL=http://127.0.0.1:8001/api
+VITE_API_ENCRYPTION_KEY=your-32-byte-key-here
 ```
 
-Important:
+Restart `npm run dev` after changing environment variables.
 
-- Use **ANON/PUBLISHABLE** key for frontend.
-- Never use `SUPABASE_SERVICE_ROLE_KEY` in frontend.
-- Restart `npm run dev` after changing `.env`.
+## 4) Notes
 
-## 3) Why these errors happen
-
-### Error: `supabaseUrl is required`
-
-Cause: `VITE_SUPABASE_URL` (or anon key) is missing in frontend environment.
-
-Fix:
-
-1. Add the two `VITE_` variables above.
-2. Restart Vite dev server.
-
-### Error: `403 (Forbidden)` on REST insert
-
-Cause: Row Level Security (RLS) policy does not allow this operation for the current role.
-
-Fix: Add or update policies in Supabase SQL editor.
-
-## 4) RLS Fixes Applied (SQL)
-
-### A. Open `users` table to all authenticated users
-
-```sql
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Authenticated full access on users" ON public.users;
-
-CREATE POLICY "Authenticated full access on users"
-	ON public.users
-	FOR ALL
-	TO authenticated
-	USING (true)
-	WITH CHECK (true);
-```
-
-### B. Open `ranking_cycles` table to all authenticated users
-
-```sql
-ALTER TABLE public.ranking_cycles ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "ranking_cycles_select_authenticated" ON public.ranking_cycles;
-DROP POLICY IF EXISTS "ranking_cycles_insert_authenticated" ON public.ranking_cycles;
-DROP POLICY IF EXISTS "ranking_cycles_update_authenticated" ON public.ranking_cycles;
-DROP POLICY IF EXISTS "ranking_cycles_delete_authenticated" ON public.ranking_cycles;
-DROP POLICY IF EXISTS "Policy with security definer functions" ON public.ranking_cycles;
-
-CREATE POLICY "ranking_cycles_select_authenticated"
-	ON public.ranking_cycles
-	FOR SELECT
-	TO authenticated
-	USING (true);
-
-CREATE POLICY "ranking_cycles_insert_authenticated"
+The frontend now uses the Laravel API for auth, data access, uploads, and cycle management. There are no Supabase-specific runtime requirements for HR Admin anymore.
 	ON public.ranking_cycles
 	FOR INSERT
 	TO authenticated
