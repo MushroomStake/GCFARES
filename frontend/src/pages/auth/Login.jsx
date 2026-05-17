@@ -1,7 +1,7 @@
 import { useState } from "react";
 import gcLogo from "../../assets/gclogo.png";
 import studentHat from "../../assets/student-hat.png";
-import { supabase } from "../../lib/supabase";
+import { portalApi } from "../../lib/portalApi";
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600&family=Source+Sans+3:wght@300;400;500;600&display=swap');
@@ -588,7 +588,7 @@ export default function Login({ onLogin }) {
 
         setLoading(true);
         try {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await portalApi.auth.signInWithPassword({
           email: fullEmail,
           password,
         });

@@ -43,7 +43,7 @@ import {
     Info,
     Lock,
 } from "lucide-react";
-import { supabase } from "../../../lib/supabase";
+import { portalApi } from "../../../lib/portalApi";
 import { getRequiredFileName } from "../../../data/fileNames";
 import { useSearchParams } from "react-router-dom";
 
@@ -54,7 +54,7 @@ import { useSearchParams } from "react-router-dom";
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 // SUBMISSION WINDOW FLAG
-// Default fallback used until ranking period data is hydrated from Supabase.
+// Default fallback used until ranking period data is hydrated from the backend.
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_SUBMISSION_OPEN = false;
 
@@ -869,64 +869,38 @@ function getProgress(area) {
 
 const DEFAULT_PERIOD_LABEL = "No active ranking period";
 const DEFAULT_DEADLINE_LABEL = "TBA";
-const TEMPLATE_BUCKET =
-    import.meta.env.VITE_SUPABASE_TEMPLATE_BUCKET || "documents";
-const SUBMISSIONS_BUCKET =
-    import.meta.env.VITE_SUPABASE_SUBMISSIONS_BUCKET || "documents";
+const TEMPLATE_BUCKET = "documents";
+const SUBMISSIONS_BUCKET = "documents";
 const TOAST_TTL_MS = 3200;
-const AREA_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_AREA_TABLE_CANDIDATES ||
-    "areas,ranking_areas,area_definitions"
-)
+const AREA_TABLE_CANDIDATES = "areas"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const AREA_PART_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_AREA_PART_TABLE_CANDIDATES ||
-    "areaparts,area_parts,ranking_parts,area_criteria"
-)
+const AREA_PART_TABLE_CANDIDATES = "area_part_templates"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const CYCLE_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_CYCLE_TABLE_CANDIDATES ||
-    "ranking_cycles,rankingcycles,cycles"
-)
+const CYCLE_TABLE_CANDIDATES = "ranking_cycles"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const PROFILE_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_PROFILE_TABLE_CANDIDATES ||
-    "users,profiles,faculty_profiles"
-)
+const PROFILE_TABLE_CANDIDATES = "users"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const APPLICATION_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_APPLICATION_TABLE_CANDIDATES ||
-    "applications,ranking_applications,faculty_applications"
-)
+const APPLICATION_TABLE_CANDIDATES = "applications"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const POSITION_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_POSITION_TABLE_CANDIDATES ||
-    "positions,rank_positions"
-)
+const POSITION_TABLE_CANDIDATES = "positions"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const AREA_SUBMISSION_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_AREA_SUBMISSION_TABLE_CANDIDATES ||
-    "area_submissions,areasubmissions,submissions"
-)
+const AREA_SUBMISSION_TABLE_CANDIDATES = "area_submissions"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const APPLICATION_LOG_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_APPLICATION_LOG_TABLE_CANDIDATES ||
-    ""  // Skip application_logs queries - table schema incompatible
-)
+const APPLICATION_LOG_TABLE_CANDIDATES = "application_logs"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
@@ -1071,6 +1045,25 @@ function formatDateTime(value) {
         hour: "numeric",
         minute: "2-digit",
     });
+}
+
+function formatMysqlDateTime(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hour = String(date.getHours()).padStart(2, "0");
+    const minute = String(date.getMinutes()).padStart(2, "0");
+    const second = String(date.getSeconds()).padStart(2, "0");
+
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
+function getMutationCount(result) {
+    return Number(getFirstValue(result, ["updated", "deleted", "affected", "count"], 0) || 0);
 }
 
 function toDaysLeft(deadlineValue, fallback = 15) {
@@ -1430,7 +1423,7 @@ function withAreaIds(areas) {
 
 async function queryAllByTableCandidates(candidates) {
     for (const table of candidates) {
-        const fallback = await supabase.from(table).select("*");
+        const fallback = await portalApi.from(table).select("*");
         if (!fallback.error && Array.isArray(fallback.data)) {
             return fallback.data;
         }
@@ -1703,13 +1696,21 @@ function mergeAreasWithSubmissions(areas, submissionRows, areaIdMapping) {
         ]);
 
         if (!partId) {
-            let areaIdVal = getFirstValue(row, ["area_id", "areaId", "area"]);
             const storagePath = getFirstValue(row, [
                 "file_path",
                 "storage_path",
                 "path",
                 "object_path",
             ]);
+
+            // Ambiguous legacy rows without a part_id and without a file path should
+            // not be forced onto a leaf part, because that makes one old area row
+            // look like every part in the area is already submitted.
+            if (!storagePath) {
+                continue;
+            }
+
+            let areaIdVal = getFirstValue(row, ["area_id", "areaId", "area"]);
             const pathAreaNumber = getAreaNumberFromPath(storagePath);
 
             // If we have an area_id mapping (database ID → frontend ID), use it
@@ -1806,7 +1807,7 @@ async function querySingleByCandidates(table, selectClause, candidates) {
             continue;
         }
 
-        const result = await supabase
+        const result = await portalApi
             .from(table)
             .select(selectClause)
             .eq(column, value)
@@ -1821,7 +1822,7 @@ async function querySingleByCandidates(table, selectClause, candidates) {
 async function queryDepartmentName(departmentId) {
     if (!departmentId) return "";
 
-    const result = await supabase
+    const result = await portalApi
         .from("departments")
         .select("department_name")
         .eq("department_id", departmentId)
@@ -1848,7 +1849,7 @@ async function queryRowsByCandidates(table, selectClause, candidates) {
                 continue;
             }
 
-            const result = await supabase
+            const result = await portalApi
                 .from(table)
                 .select(selectClause)
                 .eq(column, value);
@@ -1880,11 +1881,6 @@ async function querySingleFromTableCandidates(tableCandidates, selectClause, can
         if (row) {
             return { table, row };
         }
-
-        const probe = await supabase.from(table).select("*").limit(1);
-        if (!probe.error) {
-            return { table, row: null };
-        }
     }
 
     return { table: null, row: null };
@@ -1896,11 +1892,6 @@ async function queryRowsFromTableCandidates(tableCandidates, selectClause, candi
         if (rows.length > 0) {
             return { table, rows };
         }
-
-        const probe = await supabase.from(table).select("*").limit(1);
-        if (!probe.error) {
-            return { table, rows: [] };
-        }
     }
 
     return { table: null, rows: [] };
@@ -1908,7 +1899,7 @@ async function queryRowsFromTableCandidates(tableCandidates, selectClause, candi
 
 async function queryLatestPeriodFromCandidates(tableCandidates) {
     for (const table of tableCandidates) {
-        const ordered = await supabase
+        const ordered = await portalApi
             .from(table)
             .select("*")
             .order("created_at", { ascending: false })
@@ -1919,7 +1910,7 @@ async function queryLatestPeriodFromCandidates(tableCandidates) {
             return { table, row: ordered.data || null };
         }
 
-        const plain = await supabase.from(table).select("*").limit(1).maybeSingle();
+        const plain = await portalApi.from(table).select("*").limit(1).maybeSingle();
         if (!plain.error) {
             return { table, row: plain.data || null };
         }
@@ -1933,7 +1924,7 @@ async function querySingleByColumnCandidates(tableCandidates, selectClause, colu
 
     for (const table of tableCandidates) {
         for (const column of columnCandidates) {
-            const result = await supabase
+            const result = await portalApi
                 .from(table)
                 .select(selectClause)
                 .eq(column, value)
@@ -2174,7 +2165,8 @@ function PartCard({
     }
 
     // ── SUBMISSION SLOT BRANCH (existing code below) ──
-        const isDraft = part.status === "draft" || part.status === "draft-local";
+        const hasAttachedDraft = Boolean(part.fileObject || part.storagePath);
+        const isDraft = part.status === "draft" || part.status === "draft-local" || hasAttachedDraft;
         const sc = part.auto
                 ? "auto"
                 : part.status === "submitted"
@@ -2413,7 +2405,7 @@ function PartCard({
                                 >
                                     <CheckCircle size={12} /> Submitted
                                 </button>
-                                                        ) : isDraft ? (
+                            ) : isDraft ? (
                                 <button
                                     type="button"
                                     className="hm-btn-submit"
@@ -2519,7 +2511,7 @@ function AreaListCard({ area, onClick }) {
 
 // ── Main Export ──
 export default function Home({ user }) {
-    const userId = user?.user_id || null;
+    const userId = user?.id || user?.user_id || null;
     const userEmail = user?.email || null;
     const [facultyRecordId, setFacultyRecordId] = useState(null);
 
@@ -2673,11 +2665,38 @@ export default function Home({ user }) {
         setPeriodInfo(nextPeriodInfo);
     }, [profileInfo.status]);
 
+    const getBackendOrigin = () => {
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+        return apiBaseUrl.replace(/\/api\/?$/, "");
+    };
+
+    const normalizeFileUrl = (url) => {
+        if (!url) return null;
+        if (/^(https?:|blob:|data:)/i.test(String(url))) {
+            try {
+                const parsed = new URL(String(url));
+                if ((parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") && parsed.pathname.includes("/storage/")) {
+                    const origin = getBackendOrigin();
+                    return `${origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+                }
+            } catch (e) {
+                // ignore URL parse errors and fall through
+            }
+
+            return url;
+        }
+
+        const origin = getBackendOrigin();
+        const trimmed = String(url).replace(/^\/+/, "");
+        return `${origin}/${trimmed}`;
+    };
+
     const openUrl = (url, downloadName = null) => {
-        if (!url) return;
+        const resolvedUrl = normalizeFileUrl(url);
+        if (!resolvedUrl) return;
         if (downloadName) {
             const a = document.createElement("a");
-            a.href = url;
+            a.href = resolvedUrl;
             a.download = downloadName;
             a.target = "_blank";
             a.rel = "noreferrer";
@@ -2687,7 +2706,7 @@ export default function Home({ user }) {
             return;
         }
 
-        window.open(url, "_blank", "noopener,noreferrer");
+        window.open(resolvedUrl, "_blank", "noopener,noreferrer");
     };
 
     const getPartFileUrl = async (part) => {
@@ -2697,11 +2716,11 @@ export default function Home({ user }) {
         }
 
         if (part.storagePath) {
-            const signed = await supabase.storage
+            const signed = await portalApi.storage
                 .from(SUBMISSIONS_BUCKET)
                 .createSignedUrl(part.storagePath, 3600);
             if (!signed.error && signed.data?.signedUrl) {
-                return signed.data.signedUrl;
+                return normalizeFileUrl(signed.data.signedUrl);
             }
         }
 
@@ -2737,7 +2756,7 @@ export default function Home({ user }) {
         for (const table of CYCLE_TABLE_CANDIDATES) {
             for (const statusColumn of statusColumns) {
                 try {
-                    const openPeriod = await supabase
+                    const openPeriod = await portalApi
                         .from(table)
                         .select("*")
                         .eq(statusColumn, "open")
@@ -2764,7 +2783,6 @@ export default function Home({ user }) {
     };
 
     const writeSubmissionRow = async ({ part, storagePath, appId }) => {
-        const nowIso = new Date().toISOString();
         const activePeriodId = await resolveActivePeriodId();
 
         // Get the frontend area identifier (e.g., "I" from part ID "I-A")
@@ -2787,10 +2805,10 @@ export default function Home({ user }) {
         const submitterId = facultyRecordId || null;
 
         const base = {
+            part_id: part.id,
             area_id: areaId,
             cycle_id: activePeriodId || null,
             file_path: storagePath,
-            uploaded_at: nowIso,
             user_id: submitterId,
         };
 
@@ -2803,25 +2821,27 @@ export default function Home({ user }) {
         // Try update by known submissionId (submission_id or id)
         if (part.submissionId) {
             for (const payload of payloadVariants) {
-                const result = await supabase
+                const result = await portalApi
                     .from(resolvedTables.areaSubmissions)
                     .update(payload)
+                    .eq("part_id", part.id)
                     .eq("submission_id", part.submissionId)
                     .select("*")
                     .maybeSingle();
-                if (!result.error) {
-                    saved = result.data;
+                if (!result.error && getMutationCount(result.data) > 0) {
+                    saved = { submission_id: part.submissionId, ...payload };
                     break;
                 }
                 // try fallback to eq id
-                const tryAlt = await supabase
+                const tryAlt = await portalApi
                     .from(resolvedTables.areaSubmissions)
                     .update(payload)
-                    .eq("id", part.submissionId)
+                    .eq("part_id", part.id)
+                    .eq("submission_id", part.submissionId)
                     .select("*")
                     .maybeSingle();
-                if (!tryAlt.error) {
-                    saved = tryAlt.data;
+                if (!tryAlt.error && getMutationCount(tryAlt.data) > 0) {
+                    saved = { submission_id: part.submissionId, ...payload };
                     break;
                 }
             }
@@ -2835,7 +2855,7 @@ export default function Home({ user }) {
             const fileCols = ["file_path", "storage_path", "path", "object_path"];
             for (const col of fileCols) {
                 try {
-                    const probe = await supabase
+                    const probe = await portalApi
                         .from(resolvedTables.areaSubmissions)
                         .select("*")
                         .eq(col, storagePath)
@@ -2855,32 +2875,36 @@ export default function Home({ user }) {
                 const appCols = ["application_id", "applicationId", "app_id", "application"];
                 const areaCols = ["area_id", "areaId", "area"];
                 const userCols = ["user_id", "faculty_id", "uid", "user"];
+                const partCols = ["part_id", "partId"];
                 const periodColumnCandidates = activePeriodId
                     ? ["cycle_id", "ranking_cycle_id", "cycleId"]
                     : [null];
-                outer: for (const aCol of appCols) {
-                    for (const arCol of areaCols) {
-                        for (const uCol of userCols) {
-                            for (const cCol of periodColumnCandidates) {
-                                try {
-                                    let probeQuery = supabase
-                                        .from(resolvedTables.areaSubmissions)
-                                        .select("*")
-                                        .eq(aCol, appId)
-                                        .eq(arCol, areaId)
-                                        .eq(uCol, submitterId);
-                                    if (cCol) {
-                                        probeQuery = probeQuery.eq(cCol, activePeriodId);
-                                    }
+                outer: for (const pCol of partCols) {
+                    for (const aCol of appCols) {
+                        for (const arCol of areaCols) {
+                            for (const uCol of userCols) {
+                                for (const cCol of periodColumnCandidates) {
+                                    try {
+                                        let probeQuery = portalApi
+                                            .from(resolvedTables.areaSubmissions)
+                                            .select("*")
+                                            .eq(pCol, part.id)
+                                            .eq(aCol, appId)
+                                            .eq(arCol, areaId)
+                                            .eq(uCol, submitterId);
+                                        if (cCol) {
+                                            probeQuery = probeQuery.eq(cCol, activePeriodId);
+                                        }
 
-                                    const probe = await probeQuery.maybeSingle();
-                                    if (!probe.error && probe.data) {
-                                        existing = probe.data;
-                                        break outer;
+                                        const probe = await probeQuery.maybeSingle();
+                                        if (!probe.error && probe.data) {
+                                            existing = probe.data;
+                                            break outer;
+                                        }
+                                        if (probe.error && !isColumnOrTableError(probe.error)) break outer;
+                                    } catch (e) {
+                                        // ignore and continue
                                     }
-                                    if (probe.error && !isColumnOrTableError(probe.error)) break outer;
-                                } catch (e) {
-                                    // ignore and continue
                                 }
                             }
                         }
@@ -2894,24 +2918,24 @@ export default function Home({ user }) {
                 const idVal = getFirstValue(existing, ["submission_id", "id"]);
                 for (const payload of payloadVariants) {
                     try {
-                        const upd = await supabase
+                        const upd = await portalApi
                             .from(resolvedTables.areaSubmissions)
                             .update(payload)
                             .eq("submission_id", idVal)
                             .select("*")
                             .maybeSingle();
-                        if (!upd.error) {
-                            saved = upd.data;
+                        if (!upd.error && getMutationCount(upd.data) > 0) {
+                            saved = { submission_id: idVal, ...payload };
                             break;
                         }
-                        const updAlt = await supabase
+                        const updAlt = await portalApi
                             .from(resolvedTables.areaSubmissions)
                             .update(payload)
-                            .eq("id", idVal)
+                            .eq("submission_id", idVal)
                             .select("*")
                             .maybeSingle();
-                        if (!updAlt.error) {
-                            saved = updAlt.data;
+                        if (!updAlt.error && getMutationCount(updAlt.data) > 0) {
+                            saved = { submission_id: idVal, ...payload };
                             break;
                         }
                     } catch (e) {
@@ -2924,7 +2948,7 @@ export default function Home({ user }) {
             if (!saved) {
                 try { console.debug('writeSubmissionRow: no existing row found — will attempt insert for', storagePath); } catch (e) {}
                 for (const payload of payloadVariants) {
-                    const result = await supabase
+                    const result = await portalApi
                         .from(resolvedTables.areaSubmissions)
                         .insert([payload])
                         .select("*")
@@ -2948,10 +2972,10 @@ export default function Home({ user }) {
 
     const deleteSubmissionRow = async (part) => {
         if (part.submissionId) {
-            const byIdResult = await supabase
+            const byIdResult = await portalApi
                 .from(resolvedTables.areaSubmissions)
                 .delete()
-                .eq("id", part.submissionId);
+                .eq("submission_id", part.submissionId);
             if (!byIdResult.error) return true;
         }
 
@@ -2984,7 +3008,7 @@ export default function Home({ user }) {
 
             const attempts = [scopedPairs, userPairs.slice(0, 1), []];
             for (const pairs of attempts) {
-                let query = supabase
+                let query = portalApi
                     .from(resolvedTables.areaSubmissions)
                     .delete()
                     .eq(partColumn, part.id);
@@ -3003,17 +3027,43 @@ export default function Home({ user }) {
 
     const ensureApplicationExists = async () => {
         const activePeriodId = await resolveActivePeriodId();
+        const resolvedFacultyId = facultyRecordId ?? (Number.isFinite(Number(userId)) ? Number(userId) : null);
 
         // If application already exists, return it
         if (applicationInfo.id) return applicationInfo.id;
 
-        // If no ranking period or faculty record, cannot create application
-        if (!activePeriodId || !facultyRecordId) {
+        // Try to reuse an existing application for this faculty member before creating one.
+        if (resolvedFacultyId !== null || userEmail) {
+            try {
+                const existingApplication = await querySingleFromTableCandidates(
+                    APPLICATION_TABLE_CANDIDATES,
+                    "*",
+                    [
+                        ...(resolvedFacultyId !== null ? [["faculty_id", resolvedFacultyId], ["user_id", resolvedFacultyId]] : []),
+                        ...(userEmail ? [["email", userEmail], ["domain_email", userEmail]] : []),
+                    ],
+                );
+
+                if (existingApplication.row) {
+                    const appId = getFirstValue(existingApplication.row, ["application_id", "id"], null);
+                    if (appId) {
+                        setApplicationInfo((prev) => ({
+                            ...prev,
+                            id: appId,
+                        }));
+                        return appId;
+                    }
+                }
+            } catch (e) {
+                console.warn('ensureApplicationExists: existing application lookup failed', e?.message || e);
+            }
+        }
+
+        if (!activePeriodId || resolvedFacultyId === null) {
             console.warn('ensureApplicationExists: cannot create - missing ranking period or facultyRecordId');
             return null;
         }
 
-        // Build required fields: application_number, target_position_id
         const appNumber = `APP-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
         let targetPositionId = null;
 
@@ -3022,8 +3072,7 @@ export default function Home({ user }) {
                 resolvedTables.positions || POSITION_TABLE_CANDIDATES[0] || 'positions';
 
             if (positionsTable) {
-                // Try to fetch an existing position
-                const posResp = await supabase
+                const posResp = await portalApi
                     .from(positionsTable)
                     .select('position_id')
                     .limit(1)
@@ -3032,10 +3081,9 @@ export default function Home({ user }) {
                     targetPositionId = posResp.data.position_id || posResp.data.id || null;
                 }
 
-                // If none exists, create a default position record
                 if (!targetPositionId) {
                     try {
-                        const ins = await supabase
+                        const ins = await portalApi
                             .from(positionsTable)
                             .insert([
                                 {
@@ -3064,7 +3112,7 @@ export default function Home({ user }) {
         try {
             const payload = {
                 application_number: appNumber,
-                faculty_id: facultyRecordId,
+                faculty_id: resolvedFacultyId,
                 cycle_id: activePeriodId,
                 status: 'Draft',
                 current_rank_at_time: profileInfo.currentRank || null,
@@ -3072,7 +3120,7 @@ export default function Home({ user }) {
             };
             if (targetPositionId) payload.target_position_id = targetPositionId;
 
-            const { data, error } = await supabase
+            const { data, error } = await portalApi
                 .from(resolvedTables.applications)
                 .insert([payload])
                 .select('*')
@@ -3125,82 +3173,25 @@ export default function Home({ user }) {
             pushToast('error', 'No application record was found for this account. Contact HR to create the application first.');
             return null;
         }
-        // Try to POST metadata to the backend upload endpoint (recommended)
-        const backendUrl = import.meta.env.VITE_BACKEND_UPLOAD_URL || 'http://localhost:3001';
-        const uploadEndpoint = `${backendUrl.replace(/\/$/, '')}/api/uploads`;
-        const backendKey = import.meta.env.VITE_BACKEND_UPLOAD_KEY || '';
-
         let saved = null;
 
         try {
-            const activePeriodId = await resolveActivePeriodId();
-            const body = {
-                application_id: appId,
-                area_id: areaId,
-                cycle_id: activePeriodId || null,
-                file_path: storagePath,
-                csv_total_average_rate: null,
-                part_id: part.id || null,
-                uploaded_at: new Date().toISOString(),
-                user_id: facultyRecordId || null,
-                email: userEmail || null,
-            };
-
-            try { console.debug('persistSubmissionRow: POST body', body, 'periodInfo=', periodInfo); } catch (e) {}
-
-            const headers = { 'Content-Type': 'application/json' };
-            if (backendKey) headers['x-upload-key'] = backendKey;
-
-
-
-            const resp = await fetch(uploadEndpoint, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(body),
+            saved = await writeSubmissionRow({
+                part,
+                storagePath,
+                appId,
             });
-
-            if (resp.ok) {
-                const json = await resp.json();
-                saved = json.data || null;
-            } else {
-                let bodyText = null;
-                try {
-                    bodyText = await resp.text();
-                } catch (e) {
-                    bodyText = String(e?.message || e);
-                }
-                // eslint-disable-next-line no-console
-                console.warn('◆ persistSubmissionRow: backend error', resp.status, bodyText);
-                // For client errors (400-499) do not attempt fallback — surface to user.
-                if (resp.status >= 400 && resp.status < 500) {
-                    pushToast('error', `Upload registration failed: ${bodyText || resp.status}`);
-                    return null;
-                }
-                pushToast('error', `Upload registration failed (${resp.status}). Trying fallback...`);
-                if (resp.status === 403) {
-                    console.warn('Upload rejected: backend expects an upload key. Set VITE_BACKEND_UPLOAD_KEY to match BACKEND_UPLOAD_KEY on the backend.');
-                }
-            }
         } catch (e) {
             // eslint-disable-next-line no-console
-            console.warn('◆ persistSubmissionRow: fetch threw error:', e?.message || e);
-            pushToast('error', `Upload registration network error: ${e?.message || e}`);
+            console.warn('◆ persistSubmissionRow: direct DB write failed:', e?.message || e);
+            pushToast('error', `Failed to register submission in database: ${e?.message || e}`);
+            throw e;
         }
 
         if (!saved) {
-            try {
-                saved = await writeSubmissionRow({
-                    part,
-                    storagePath,
-                    appId,
-                });
-                if (saved) {
-                }
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn('◆ persistSubmissionRow: direct DB write failed:', e?.message || e);
-                pushToast('error', `Failed to register submission in database: ${e?.message || e}`);
-            }
+            const error = new Error('Upload was saved to storage, but the submission row could not be registered.');
+            pushToast('error', error.message);
+            throw error;
         }
 
         return saved;
@@ -3216,7 +3207,7 @@ export default function Home({ user }) {
         const cleanName = sanitizeFileName(requiredBaseName ? `${requiredBaseName}.pdf` : file.name);
         const storagePath = `Faculty/${areaFolder}/${partFolder}/${periodSegment}/${userSegment}/${Date.now()}_${cleanName}`;
 
-        const uploadResult = await supabase.storage
+        const uploadResult = await portalApi.storage
             .from(SUBMISSIONS_BUCKET)
             .upload(storagePath, file, { upsert: true });
         if (uploadResult.error) {
@@ -3224,7 +3215,7 @@ export default function Home({ user }) {
             throw uploadResult.error;
         }
 
-        const signed = await supabase.storage
+        const signed = await portalApi.storage
             .from(SUBMISSIONS_BUCKET)
             .createSignedUrl(storagePath, 3600);
         const fileUrl = signed.data?.signedUrl || null;
@@ -3233,16 +3224,16 @@ export default function Home({ user }) {
         let saved = null;
         try {
             saved = await persistSubmissionRow(part, storagePath);
-            if (!saved) {
-                console.warn('uploadFileForPart: persistSubmissionRow returned no row (but did not throw)');
-            }
         } catch (e) {
             console.warn('uploadFileForPart: persistSubmissionRow threw error:', e?.message || e);
+            throw e;
         }
+
+        const nextResolvedStatus = saved ? nextStatus : (part.status === 'draft-local' ? 'draft-local' : 'draft');
 
         patchPartLocal(part.id, (prev) => ({
             ...prev,
-            status: nextStatus,
+            status: nextResolvedStatus,
             file: file.name,
             date: nowText,
             fileUrl,
@@ -3270,7 +3261,7 @@ export default function Home({ user }) {
         setPartAction(part.id, "template");
         try {
             const areaId = resolvePartAreaId(part);
-            const { data: templateRow, error: templateError } = await supabase
+            const { data: templateRow, error: templateError } = await portalApi
                 .from("area_part_templates")
                 .select("*")
                 .eq("area_id", areaId)
@@ -3283,7 +3274,7 @@ export default function Home({ user }) {
             }
 
             if (templateRow?.storage_path) {
-                const signed = await supabase.storage
+                const signed = await portalApi.storage
                     .from(templateRow.storage_bucket || TEMPLATE_BUCKET)
                     .createSignedUrl(templateRow.storage_path, 600);
 
@@ -3297,7 +3288,7 @@ export default function Home({ user }) {
             const templatePaths = buildTemplatePathCandidatesForPart(part);
             if (templatePaths.length > 0) {
                 for (const templatePath of templatePaths) {
-                    const signed = await supabase.storage
+                    const signed = await portalApi.storage
                         .from(TEMPLATE_BUCKET)
                         .createSignedUrl(templatePath, 600);
 
@@ -3318,6 +3309,10 @@ export default function Home({ user }) {
         }
     };
 
+    const [viewerModalOpen, setViewerModalOpen] = useState(false);
+    const [viewerModalFile, setViewerModalFile] = useState(null);
+    const [viewerModalTitle, setViewerModalTitle] = useState("");
+
     const handleViewFile = async (part) => {
         setPartAction(part.id, "view");
         try {
@@ -3329,7 +3324,10 @@ export default function Home({ user }) {
                 );
                 return;
             }
-            openUrl(url);
+
+            setViewerModalFile(url);
+            setViewerModalTitle(part.file || part.id || "Uploaded File");
+            setViewerModalOpen(true);
         } finally {
             setPartAction(part.id, null);
         }
@@ -3413,6 +3411,12 @@ export default function Home({ user }) {
         });
     };
 
+    const closeViewerModal = () => {
+        setViewerModalOpen(false);
+        setViewerModalFile(null);
+        setViewerModalTitle("");
+    };
+
     const handleRemoveDraft = async (part) => {
         if (part.status !== "draft" && part.status !== "draft-local") return;
 
@@ -3445,23 +3449,18 @@ export default function Home({ user }) {
                 return;
             }
 
-            if (part.storagePath) {
-                await supabase.storage
-                    .from(SUBMISSIONS_BUCKET)
-                    .remove([part.storagePath]);
-            }
-
+            const draftLabel = part.file || part.id || "Draft";
             patchPartLocal(part.id, (prev) => ({
                 ...prev,
-                status: "empty",
-                file: null,
+                status: "draft",
+                file: draftLabel,
                 fileObject: null,
                 date: null,
-                fileUrl: null,
-                storagePath: null,
+                fileUrl: prev.fileUrl || null,
+                storagePath: prev.storagePath || part.storagePath || null,
                 submissionId: null,
             }));
-            pushToast("success", "Draft removed.");
+            pushToast("success", "Submission returned to draft state.");
         } catch {
             pushToast("error", "Unable to remove draft right now.");
         } finally {
@@ -3472,12 +3471,14 @@ export default function Home({ user }) {
     const handleSubmitPart = async (part) => {
         // Allow submitting either an already-uploaded draft or a locally attached draft.
         if (!part) return;
-        const isLocalDraft = part.fileObject && !part.storagePath;
+        const isLocalDraft = Boolean(part.fileObject) && !part.storagePath;
         const isRemoteDraft = part.status === "draft" && part.storagePath;
-        if (!isLocalDraft && !isRemoteDraft && part.status !== "draft-local") return;
+        const hasAttachedDraft = Boolean(part.fileObject || part.storagePath);
+        if (!isLocalDraft && !isRemoteDraft && part.status !== "draft-local" && !hasAttachedDraft) return;
 
         setPartAction(part.id, "submit");
         try {
+            try { console.debug('handleSubmitPart: starting submit for part', part.id, { status: part.status, submissionId: part.submissionId, storagePath: part.storagePath }); } catch (e) {}
             const nowIso = new Date().toISOString();
 
             // If there's a local file object, upload it now (this will also write the submission row).
@@ -3494,15 +3495,24 @@ export default function Home({ user }) {
                             getFirstValue(saved, ["submission_id", "id"], null) ||
                             prev.submissionId ||
                             null,
+                        status: "submitted",
                     }));
+                } else {
+                    patchPartLocal(part.id, (prev) => ({
+                        ...prev,
+                        status: prev.storagePath ? "draft" : "draft-local",
+                    }));
+                    throw new Error("Submission row was not saved.");
                 }
             } else if (isRemoteDraft) {
-                // If already uploaded as draft, promote to submitted by writing the log and updating status.
-                let saved = null;
-                if (!part.submissionId) {
-                    saved = await persistSubmissionRow(part, part.storagePath);
+                // If already uploaded as draft, always verify the row is written before promoting status.
+                const saved = await persistSubmissionRow(part, part.storagePath);
+
+                if (!saved) {
+                    throw new Error("Submission row was not saved.");
                 }
-                await supabase.from(resolvedTables.applicationLogs).insert([
+
+                await portalApi.from(resolvedTables.applicationLogs).insert([
                     stripUndefined({
                         user_id: facultyRecordId,
                         cycle_id: periodInfo.id,
@@ -3510,8 +3520,8 @@ export default function Home({ user }) {
                         part_id: part.id,
                         action: "submitted",
                         file_name: part.file || `${part.id}.pdf`,
-                        timestamp: nowIso,
-                        created_at: nowIso,
+                        timestamp: formatMysqlDateTime(nowIso),
+                        created_at: formatMysqlDateTime(nowIso),
                     }),
                 ]);
 
@@ -3545,7 +3555,7 @@ export default function Home({ user }) {
             // Load the actual database areas table (for area_id lookup during uploads)
             let loadedDatabaseAreas = []; // Capture locally to use immediately
             try {
-                const { data: dbAreasData, error: dbAreasError } = await supabase
+                const { data: dbAreasData, error: dbAreasError } = await portalApi
                     .from('areas')
                     .select('*');
                 if (!dbAreasError && Array.isArray(dbAreasData) && dbAreasData.length > 0) {
@@ -3735,7 +3745,17 @@ export default function Home({ user }) {
                     numericFacultyId = resolvedFacultyId === null || resolvedFacultyId === undefined
                         ? null
                         : Number(resolvedFacultyId);
-                    setFacultyRecordId(Number.isFinite(numericFacultyId) ? numericFacultyId : null);
+                    if (Number.isFinite(numericFacultyId)) {
+                        setFacultyRecordId(numericFacultyId);
+                    }
+                }
+
+                if (!Number.isFinite(numericFacultyId) && userId !== null && userId !== undefined) {
+                    const fallbackFacultyId = Number(userId);
+                    if (Number.isFinite(fallbackFacultyId)) {
+                        numericFacultyId = fallbackFacultyId;
+                        setFacultyRecordId(fallbackFacultyId);
+                    }
                 }
 
                 const applicationCandidates = Number.isFinite(numericFacultyId)
@@ -3808,114 +3828,37 @@ export default function Home({ user }) {
                 });
             }
 
-            const submissionCandidates = pickUserFilterCandidates({ user_id: numericFacultyId, email: userEmail });
             let submissionRows = [];
             let submissionResult = { table: null, rows: [] };
             try {
-                submissionResult = await queryRowsFromTableCandidates(
-                    AREA_SUBMISSION_TABLE_CANDIDATES,
-                    "*",
-                    submissionCandidates,
-                );
-                submissionRows = submissionResult.rows || [];
-                // eslint-disable-next-line no-console
-                console.debug('hydrate: fetched submissionResult.table=', submissionResult.table, 'count=', submissionRows.length);
+                if (nextPeriodInfo.id && Number.isFinite(numericFacultyId)) {
+                    const subsTable = nextResolvedTables.areaSubmissions || AREA_SUBMISSION_TABLE_CANDIDATES[0] || "area_submissions";
+                    const exactSubmissionResult = await portalApi
+                        .from(subsTable)
+                        .select("*")
+                        .eq("user_id", numericFacultyId)
+                        .eq("cycle_id", nextPeriodInfo.id);
+
+                    if (!exactSubmissionResult.error && Array.isArray(exactSubmissionResult.data)) {
+                        submissionRows = exactSubmissionResult.data;
+                        submissionResult = {
+                            table: subsTable,
+                            rows: submissionRows,
+                        };
+                    }
+
+                    // eslint-disable-next-line no-console
+                    console.debug('hydrate: exact submission lookup table=', submissionResult.table, 'count=', submissionRows.length);
+                } else {
+                    // No active cycle means there is no current submission set to hydrate.
+                    submissionRows = [];
+                    submissionResult = { table: null, rows: [] };
+                }
             } catch (se) {
                 // eslint-disable-next-line no-console
                 console.debug('hydrate: submission rows fetch failed', se?.message || se);
                 submissionRows = [];
                 submissionResult = { table: null, rows: [] };
-            }
-
-            // Fallback: if no submissions found, try application+user/email multi-eq queries
-            if ((submissionRows || []).length === 0) {
-                try {
-                    const subsTable = submissionResult.table || nextResolvedTables.areaSubmissions || AREA_SUBMISSION_TABLE_CANDIDATES[0] || 'area_submissions';
-                    const appIdCandidate = applicationInfo.id || getFirstValue(applicationRow, ['application_id', 'id'], null);
-                    const userCandidate = Number.isFinite(numericFacultyId) ? numericFacultyId : null;
-
-                    // Debug: expose to window so user can query from console
-                    try {
-                        window.__debugHydrate = {
-                            supabase,
-                            subsTable,
-                            appIdCandidate,
-                            userCandidate,
-                            submissionCandidates,
-                            numericFacultyId,
-                            userEmail,
-                        };
-                        // eslint-disable-next-line no-console
-                        console.debug('hydrate: window.__debugHydrate available for console queries');
-                    } catch (e) {
-                        // ignore if window not available
-                    }
-
-                    // Try by application_id + user_id
-                    if (appIdCandidate && userCandidate) {
-                        // eslint-disable-next-line no-console
-                        console.debug('hydrate: fallback probing by application_id + user_id', subsTable, appIdCandidate, userCandidate);
-                        let query = supabase.from(subsTable).select('*').eq('application_id', appIdCandidate).eq('user_id', userCandidate);
-                        if (nextPeriodInfo.id) query = query.eq('cycle_id', nextPeriodInfo.id);
-                        const probe = await query;
-                        if (!probe.error && Array.isArray(probe.data) && probe.data.length > 0) {
-                            submissionRows = probe.data;
-                            submissionResult.table = subsTable;
-                            // eslint-disable-next-line no-console
-                            console.debug('hydrate: fallback match application+user rows=', submissionRows.length);
-                        }
-                    }
-
-                    // Try by application_id + email (if still empty)
-                    if ((submissionRows || []).length === 0 && appIdCandidate && userEmail) {
-                        // eslint-disable-next-line no-console
-                        console.debug('hydrate: fallback probing by application_id + email', subsTable, appIdCandidate, userEmail);
-                        let query = supabase.from(subsTable).select('*').eq('application_id', appIdCandidate).eq('email', userEmail);
-                        if (nextPeriodInfo.id) query = query.eq('cycle_id', nextPeriodInfo.id);
-                        const probe2 = await query;
-                        if (!probe2.error && Array.isArray(probe2.data) && probe2.data.length > 0) {
-                            submissionRows = probe2.data;
-                            submissionResult.table = subsTable;
-                            // eslint-disable-next-line no-console
-                            console.debug('hydrate: fallback match application+email rows=', submissionRows.length);
-                        }
-                    }
-
-                    // Additional fallback: probe by application + area + email across known area ids
-                    if ((submissionRows || []).length === 0 && appIdCandidate && userEmail && Array.isArray(baseAreas) && baseAreas.length > 0) {
-                        try {
-                            const areaCols = ['area_id', 'area', 'areaId'];
-                            for (const areaRow of baseAreas) {
-                                const candidateAreaId = getFirstValue(areaRow, ['id', 'area_id', 'areaId']);
-                                if (!candidateAreaId) continue;
-
-                                for (const areaCol of areaCols) {
-                                    // eslint-disable-next-line no-console
-                                    console.debug('hydrate: fallback probing by application+area+email', subsTable, appIdCandidate, areaCol, candidateAreaId, userEmail);
-                                    let query = supabase.from(subsTable).select('*').eq('application_id', appIdCandidate).eq(areaCol, candidateAreaId).eq('email', userEmail).limit(1);
-                                    if (nextPeriodInfo.id) query = query.eq('cycle_id', nextPeriodInfo.id);
-                                    const probeArea = await query;
-                                    if (!probeArea.error && Array.isArray(probeArea.data) && probeArea.data.length > 0) {
-                                        let finalQuery = supabase.from(subsTable).select('*').eq('application_id', appIdCandidate).eq(areaCol, candidateAreaId).eq('email', userEmail);
-                                        if (nextPeriodInfo.id) finalQuery = finalQuery.eq('cycle_id', nextPeriodInfo.id);
-                                        submissionRows = await finalQuery;
-                                        submissionResult.table = subsTable;
-                                        // eslint-disable-next-line no-console
-                                        console.debug('hydrate: fallback match application+area+email rows=', (submissionRows?.length||0), 'areaCol=', areaCol, 'areaId=', candidateAreaId);
-                                        break;
-                                    }
-                                }
-                                if ((submissionRows || []).length > 0) break;
-                            }
-                        } catch (ae) {
-                            // eslint-disable-next-line no-console
-                            console.debug('hydrate: area-scoped fallback failed', ae?.message || ae);
-                        }
-                    }
-                } catch (fe) {
-                    // eslint-disable-next-line no-console
-                    console.debug('hydrate: fallback submission probe failed', fe?.message || fe);
-                }
             }
             // Debug: log fetched submission rows to help diagnose duplicates
             try {
@@ -3969,31 +3912,6 @@ export default function Home({ user }) {
             isActive = false;
         };
     }, [userEmail, userId, periodInfo.id]);
-
-    useEffect(() => {
-        if (!resolvedCycleTable) return;
-
-        const channel = supabase
-            .channel(`faculty-home-cycles-${resolvedCycleTable}`)
-            .on(
-                "postgres_changes",
-                {
-                    event: "*",
-                    schema: "public",
-                    table: resolvedCycleTable,
-                },
-                () => {
-                    void refreshSubmissionWindow();
-                },
-            )
-            .subscribe();
-
-        void refreshSubmissionWindow();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [refreshSubmissionWindow, resolvedCycleTable]);
 
     const openArea = (id) => {
         setOpenAreaId(id);
@@ -4088,7 +4006,7 @@ export default function Home({ user }) {
                             </div>
                         </>
                     ) : (
-                        /* Closed state — shown when submission_open = false in Supabase */
+                        /* Closed state — shown when submission_open = false in the backend */
                         <>
                             <div
                                 className="hm-deadline-ring"
@@ -4234,6 +4152,62 @@ export default function Home({ user }) {
                             {toast.message}
                         </div>
                     ))}
+                </div>
+            )}
+
+            {viewerModalOpen && (
+                <div className="hm-modal-backdrop" role="presentation" onClick={closeViewerModal}>
+                    <div
+                        className="hm-error-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="hm-viewer-title"
+                        style={{ width: "90vw", maxWidth: "1100px", height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="hm-error-modal-head">
+                            <div className="hm-error-modal-title" id="hm-viewer-title">
+                                <FileText size={16} /> {viewerModalTitle || "Uploaded File"}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <button
+                                    type="button"
+                                    className="hm-error-modal-close"
+                                    onClick={() => {
+                                        if (viewerModalFile) {
+                                            openUrl(viewerModalFile, viewerModalTitle || "document.pdf");
+                                        }
+                                    }}
+                                    title="Download"
+                                    style={{ width: 32, height: 32, borderRadius: 8, fontSize: 16 }}
+                                >
+                                    <Download size={14} />
+                                </button>
+                                <button
+                                    type="button"
+                                    className="hm-error-modal-close"
+                                    onClick={closeViewerModal}
+                                    aria-label="Close viewer"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        </div>
+                        <div style={{ flex: 1, minHeight: 0, background: "#f8fafc" }}>
+                            {viewerModalFile && String(viewerModalFile).toLowerCase().endsWith(".pdf") ? (
+                                <iframe
+                                    src={viewerModalFile}
+                                    title={viewerModalTitle || "Uploaded file"}
+                                    style={{ width: "100%", height: "100%", border: "none", background: "white" }}
+                                />
+                            ) : viewerModalFile ? (
+                                <div style={{ padding: 24 }}>
+                                    <p style={{ marginBottom: 12 }}>Preview is not available for this file type.</p>
+                                    <button type="button" className="hm-btn-template" onClick={() => openUrl(viewerModalFile, viewerModalTitle || "document")}>Download file</button>
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
                 </div>
             )}
 

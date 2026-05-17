@@ -1,7 +1,7 @@
 ﻿// SIA/frontend/src/pages/faculty/tabs/History.jsx
 
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "../../../lib/supabase";
+import { portalApi } from "../../../lib/portalApi";
 
 // â”€â”€â”€ Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const css = `
@@ -75,10 +75,7 @@ const css = `
 // Intentionally no mock rows here so History only shows live data.
 
 
-const CYCLE_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_CYCLE_TABLE_CANDIDATES ||
-    "ranking_cycles,rankingcycles,cycles"
-)
+const CYCLE_TABLE_CANDIDATES = "ranking_cycles"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
@@ -107,7 +104,7 @@ function formatShortDate(value, fallback = "Unknown") {
 
 async function queryRowsFromTableCandidates(tableCandidates, limit = 80) {
     for (const table of tableCandidates) {
-        const ordered = await supabase
+        const ordered = await portalApi
             .from(table)
             .select("*")
             .order("created_at", { ascending: false })
@@ -117,7 +114,7 @@ async function queryRowsFromTableCandidates(tableCandidates, limit = 80) {
             return { table, rows: ordered.data };
         }
 
-        const plain = await supabase.from(table).select("*").limit(limit);
+        const plain = await portalApi.from(table).select("*").limit(limit);
         if (!plain.error && Array.isArray(plain.data)) {
             return { table, rows: plain.data };
         }
@@ -245,7 +242,7 @@ export default function History({ cycles }) {
     useEffect(() => {
         if (!resolvedCycleTable) return;
 
-        const channel = supabase
+        const channel = portalApi
             .channel(`faculty-history-cycles-${resolvedCycleTable}`)
             .on(
                 "postgres_changes",
@@ -265,7 +262,7 @@ export default function History({ cycles }) {
         }
 
         return () => {
-            supabase.removeChannel(channel);
+            portalApi.removeChannel(channel);
         };
     }, [cycles, refreshHistory, resolvedCycleTable]);
 

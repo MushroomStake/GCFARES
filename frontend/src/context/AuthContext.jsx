@@ -8,7 +8,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
-import { supabase } from "../lib/supabase";
+import { portalApi } from "../lib/portalApi";
 
 const AuthContext = createContext(undefined);
 
@@ -91,7 +91,7 @@ export function AuthProvider({ children }) {
 
 		try {
 			if (currentUser.email) {
-				const byEmail = await supabase
+				const byEmail = await portalApi
 					.from("users")
 					.select("*")
 					.eq("domain_email", currentUser.email)
@@ -103,7 +103,7 @@ export function AuthProvider({ children }) {
 			}
 
 			if (!profileRow && currentUser.email) {
-				const byEmailFallback = await supabase
+				const byEmailFallback = await portalApi
 					.from("users")
 					.select("*")
 					.eq("email", currentUser.email)
@@ -138,7 +138,7 @@ export function AuthProvider({ children }) {
 
 		const boot = async () => {
 			try {
-				const { data } = await supabase.auth.getSession();
+				const { data } = await portalApi.auth.getSession();
 				if (!mounted) return;
 
 				const nextSession = data?.session ?? null;
@@ -163,7 +163,7 @@ export function AuthProvider({ children }) {
 
 		const {
 			data: { subscription },
-		} = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+		} = portalApi.auth.onAuthStateChange(async (_event, nextSession) => {
 			if (!mounted) return;
 			setSession(nextSession ?? null);
 			setUser(nextSession?.user ?? null);
@@ -184,7 +184,7 @@ export function AuthProvider({ children }) {
 		const userId = user?.id || user?.user_id || null;
 		const userEmail = user?.email || user?.user_metadata?.email || null;
 
-		const channel = supabase
+		const channel = portalApi
 			.channel(`faculty-users-${userId || userEmail || "current"}`)
 			.on(
 				"postgres_changes",
@@ -210,7 +210,7 @@ export function AuthProvider({ children }) {
 			.subscribe();
 
 		return () => {
-			supabase.removeChannel(channel);
+			portalApi.removeChannel(channel);
 		};
 	}, [hydrateProfile, user]);
 
@@ -219,7 +219,7 @@ export function AuthProvider({ children }) {
 	}, [hydrateProfile, user]);
 
 	const signOut = useCallback(async () => {
-		await supabase.auth.signOut();
+		await portalApi.auth.signOut();
 	}, []);
 
 	const markFirstLoginComplete = useCallback(async () => {
@@ -234,7 +234,7 @@ export function AuthProvider({ children }) {
 		}
 
 		for (const column of FIRST_LOGIN_COLUMNS) {
-			const { error } = await supabase
+			const { error } = await portalApi
 				.from("users")
 				.update({ [column]: false })
 				.eq(profile?.user_id ? "user_id" : "domain_email", profile?.user_id || user.email);

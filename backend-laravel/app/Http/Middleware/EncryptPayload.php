@@ -22,8 +22,10 @@ class EncryptPayload
      */
     public function handle(Request $request, Closure $next): Response
     {
+        $isMultipartUpload = $request->is('api/storage/upload');
+
         // 1. INCOMING REQUEST: Intercept and Decrypt incoming JSON from Frontend
-        if ($request->isMethod('post') || $request->isMethod('put') || $request->isMethod('patch')) {
+        if (! $isMultipartUpload && ($request->isMethod('post') || $request->isMethod('put') || $request->isMethod('patch'))) {
             if ($request->has('payload')) {
                 try {
                     $wrapper = $request->input('payload');
@@ -64,6 +66,10 @@ class EncryptPayload
 
         // Send the clean, decrypted data to your normal controllers
         $response = $next($request);
+
+        if ($isMultipartUpload) {
+            return $response;
+        }
 
         // 2. OUTGOING RESPONSE: Automatically Intercept and Encrypt Server Data
         if ($response instanceof JsonResponse) {

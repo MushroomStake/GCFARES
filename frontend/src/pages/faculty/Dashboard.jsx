@@ -10,12 +10,9 @@ import History from "./tabs/History";
 import Profile from "./tabs/Profile";
 import Notifications from "./tabs/Notifications";
 import { LogOut } from "lucide-react";
-import { supabase } from "../../lib/supabase";
+import { portalApi } from "../../lib/portalApi";
 
-const NOTIFICATION_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_NOTIFICATION_TABLE_CANDIDATES ||
-    "notifications,notification,alerts"
-)
+const NOTIFICATION_TABLE_CANDIDATES = "notifications,notification,alerts"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
@@ -69,7 +66,7 @@ function normalizeNotificationRow(row, index) {
 
 async function queryNotifications(limit = 50) {
     for (const table of NOTIFICATION_TABLE_CANDIDATES) {
-        const ordered = await supabase
+        const ordered = await portalApi
             .from(table)
             .select("*")
             .order("created_at", { ascending: false })
@@ -79,7 +76,7 @@ async function queryNotifications(limit = 50) {
             return { table, rows: ordered.data };
         }
 
-        const plain = await supabase.from(table).select("*").limit(limit);
+        const plain = await portalApi.from(table).select("*").limit(limit);
         if (!plain.error && Array.isArray(plain.data)) {
             return { table, rows: plain.data };
         }
@@ -249,7 +246,7 @@ export default function Dashboard({ user, onLogout, _devInitialTab }) {
 
             if (!notificationTable) return;
 
-            await supabase
+            await portalApi
                 .from(notificationTable)
                 .update({ is_read: true })
                 .eq("id", id);
@@ -267,7 +264,7 @@ export default function Dashboard({ user, onLogout, _devInitialTab }) {
 
         if (!notificationTable) return;
 
-        await supabase
+        await portalApi
             .from(notificationTable)
             .update({ is_read: true })
             .in("id", unreadIds);

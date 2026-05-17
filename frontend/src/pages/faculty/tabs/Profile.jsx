@@ -33,7 +33,7 @@ import {
     AlertCircle,
     Shield,
 } from "lucide-react";
-import { supabase } from "../../../lib/supabase";
+import { portalApi } from "../../../lib/portalApi";
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
@@ -468,27 +468,18 @@ const styles = `
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROFILE EDIT WINDOW FLAG
-// Default fallback used until ranking cycle data is hydrated from Supabase.
+// Default fallback used until ranking cycle data is hydrated from the backend.
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_PROFILE_EDIT_OPEN = false;
-const USER_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_USER_TABLE_CANDIDATES ||
-    "users"
-)
+const USER_TABLE_CANDIDATES = "users"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const CYCLE_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_CYCLE_TABLE_CANDIDATES ||
-    "ranking_cycles,cycles"
-)
+const CYCLE_TABLE_CANDIDATES = "ranking_cycles"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-const AREA_SUBMISSION_TABLE_CANDIDATES = (
-    import.meta.env.VITE_SUPABASE_AREA_SUBMISSION_TABLE_CANDIDATES ||
-    "area_submissions"
-)
+const AREA_SUBMISSION_TABLE_CANDIDATES = "area_submissions"
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
@@ -684,7 +675,7 @@ function parseArrayOrLines(value) {
 
 async function queryPlainRowsWithTableFromCandidates(candidates, limit = 300) {
     for (const table of candidates) {
-        const result = await supabase.from(table).select("*").limit(limit);
+        const result = await portalApi.from(table).select("*").limit(limit);
         if (!result.error && Array.isArray(result.data)) {
             return { table, rows: result.data };
         }
@@ -695,7 +686,7 @@ async function queryPlainRowsWithTableFromCandidates(candidates, limit = 300) {
 
 async function queryRowsWithTableFromCandidates(candidates, limit = 300) {
     for (const table of candidates) {
-        const ordered = await supabase
+        const ordered = await portalApi
             .from(table)
             .select("*")
             .order("created_at", { ascending: false })
@@ -704,7 +695,7 @@ async function queryRowsWithTableFromCandidates(candidates, limit = 300) {
             return { table, rows: ordered.data };
         }
 
-        const plain = await supabase.from(table).select("*").limit(limit);
+        const plain = await portalApi.from(table).select("*").limit(limit);
         if (!plain.error && Array.isArray(plain.data)) {
             return { table, rows: plain.data };
         }
@@ -715,7 +706,7 @@ async function queryRowsWithTableFromCandidates(candidates, limit = 300) {
 
 async function querySingleByCandidates(candidates, column, value) {
     for (const table of candidates) {
-        const result = await supabase
+        const result = await portalApi
             .from(table)
             .select("*")
             .eq(column, value)
@@ -731,7 +722,7 @@ async function querySingleByCandidates(candidates, column, value) {
 async function queryDepartmentName(departmentId) {
     if (!departmentId) return "";
 
-    const result = await supabase
+    const result = await portalApi
         .from("departments")
         .select("department_name")
         .eq("department_id", departmentId)
@@ -1555,11 +1546,11 @@ export default function Profile({ user }) {
 
             const userFetchPromise = (async () => {
                 if (userId && isNumericId(userId)) {
-                    const r = await supabase.from(USER_TABLE).select("*").eq("user_id", parseIntegerOrNull(userId)).maybeSingle();
+                    const r = await portalApi.from(USER_TABLE).select("*").eq("user_id", parseIntegerOrNull(userId)).maybeSingle();
                     return r.error ? null : r.data;
                 }
                 if (userEmail) {
-                    const r = await supabase.from(USER_TABLE).select("*").eq("domain_email", userEmail).maybeSingle();
+                    const r = await portalApi.from(USER_TABLE).select("*").eq("domain_email", userEmail).maybeSingle();
                     return r.error ? null : r.data;
                 }
                 return null;
@@ -1685,7 +1676,7 @@ export default function Profile({ user }) {
     useEffect(() => {
         if (!resolvedCycleTable) return;
 
-        const channel = supabase
+        const channel = portalApi
             .channel(`faculty-profile-cycles-${resolvedCycleTable}`)
             .on(
                 "postgres_changes",
@@ -1703,7 +1694,7 @@ export default function Profile({ user }) {
         void refreshCycleWindow();
 
         return () => {
-            supabase.removeChannel(channel);
+            portalApi.removeChannel(channel);
         };
     }, [refreshCycleWindow, resolvedCycleTable]);
 
@@ -1719,7 +1710,7 @@ export default function Profile({ user }) {
         const useNumeric = isNumericId(userId);
         const userFilterColumn = useNumeric ? "user_id" : "domain_email";
         const userFilterValue = useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId);
-        const { error } = await supabase
+        const { error } = await portalApi
             .from(USER_TABLE)
             .update(updatePayload)
             .eq(userFilterColumn, userFilterValue);
@@ -1753,7 +1744,7 @@ export default function Profile({ user }) {
 
             const nextList = [...eduList, newEntry];
             const useNumeric = isNumericId(userId);
-            const { error } = await supabase
+            const { error } = await portalApi
                 .from(USER_TABLE)
                 .update(buildEducationPayload(nextList))
                 .eq(useNumeric ? "user_id" : "domain_email", useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1784,7 +1775,7 @@ export default function Profile({ user }) {
             } : e));
 
             const useNumeric = isNumericId(userId);
-            const { error } = await supabase
+            const { error } = await portalApi
                 .from(USER_TABLE)
                 .update(buildEducationPayload(updated))
                 .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1808,7 +1799,7 @@ export default function Profile({ user }) {
         if (!window.confirm('Delete this degree entry?')) return;
         const nextList = eduList.filter((_, i) => i !== index);
         const useNumeric = isNumericId(userId);
-        const { error } = await supabase
+        const { error } = await portalApi
             .from(USER_TABLE)
             .update(buildEducationPayload(nextList))
             .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1832,7 +1823,7 @@ export default function Profile({ user }) {
 
             const nextList = [...eligList, newEntry];
             const useNumeric = isNumericId(userId);
-            const { error } = await supabase
+            const { error } = await portalApi
                 .from(USER_TABLE)
                 .update(buildEligibilityPayload(nextList))
                 .eq(useNumeric ? "user_id" : "domain_email", useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1857,7 +1848,7 @@ export default function Profile({ user }) {
         try {
             const updated = eligList.map((e, i) => (i === index ? { text: eligData.text } : e));
             const useNumeric = isNumericId(userId);
-            const { error } = await supabase
+            const { error } = await portalApi
                 .from(USER_TABLE)
                 .update(buildEligibilityPayload(updated))
                 .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1881,7 +1872,7 @@ export default function Profile({ user }) {
         if (!window.confirm('Delete this eligibility entry?')) return;
         const nextList = eligList.filter((_, i) => i !== index);
         const useNumeric = isNumericId(userId);
-        const { error } = await supabase
+        const { error } = await portalApi
             .from(USER_TABLE)
             .update(buildEligibilityPayload(nextList))
             .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1908,7 +1899,7 @@ export default function Profile({ user }) {
 
             const nextList = [...doctoralList, newEntry];
             const useNumeric = isNumericId(userId);
-            const { error } = await supabase
+            const { error } = await portalApi
                 .from(USER_TABLE)
                 .update(buildDoctoratePayload(nextList))
                 .eq(useNumeric ? "user_id" : "domain_email", useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1933,7 +1924,7 @@ export default function Profile({ user }) {
         try {
             const updated = doctoralList.map((d, i) => (i === index ? { degree: doctoralData.degree, school: doctoralData.yearGraduated ? `${doctoralData.institution} · ${doctoralData.yearGraduated}` : doctoralData.institution } : d));
             const useNumeric = isNumericId(userId);
-            const { error } = await supabase
+            const { error } = await portalApi
                 .from(USER_TABLE)
                 .update(buildDoctoratePayload(updated))
                 .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1957,7 +1948,7 @@ export default function Profile({ user }) {
         if (!window.confirm('Delete this doctorate entry?')) return;
         const nextList = doctoralList.filter((_, i) => i !== index);
         const useNumeric = isNumericId(userId);
-        const { error } = await supabase
+        const { error } = await portalApi
             .from(USER_TABLE)
             .update(buildDoctoratePayload(nextList))
             .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1990,14 +1981,14 @@ export default function Profile({ user }) {
         try {
             const {
                 data: { user: sessionUser },
-            } = await supabase.auth.getUser();
+            } = await portalApi.auth.getUser();
 
             const accountEmail = user?.email || sessionUser?.email;
             if (!accountEmail) {
                 throw new Error("No account email available for verification.");
             }
 
-            const { error: verifyError } = await supabase.auth.signInWithPassword({
+            const { error: verifyError } = await portalApi.auth.signInWithPassword({
                 email: accountEmail,
                 password: cpCurrent,
             });
@@ -2006,7 +1997,7 @@ export default function Profile({ user }) {
                 return;
             }
 
-            const { error: updateError } = await supabase.auth.updateUser({
+            const { error: updateError } = await portalApi.auth.updateUser({
                 password: cpNew,
             });
             if (updateError) throw updateError;

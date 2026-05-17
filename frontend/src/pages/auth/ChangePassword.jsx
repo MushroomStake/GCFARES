@@ -1,7 +1,7 @@
 import { useState } from "react";
 import gcLogo from "../../assets/gclogo.png";
 import studentHat from "../../assets/student-hat.png";
-import { supabase } from "../../lib/supabase";
+import { portalApi } from "../../lib/portalApi";
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600&family=Source+Sans+3:wght@300;400;500;600&display=swap');
@@ -506,14 +506,14 @@ export default function ChangePassword({ user, onSuccess }) {
         try {
           const {
             data: { user: sessionUser },
-          } = await supabase.auth.getUser();
+          } = await portalApi.auth.getUser();
 
           const accountEmail = sessionUser?.email || user?.email;
           if (!accountEmail) {
             throw new Error("Unable to determine account email for verification.");
           }
 
-          const { error: verifyError } = await supabase.auth.signInWithPassword({
+          const { error: verifyError } = await portalApi.auth.signInWithPassword({
             email: accountEmail,
             password: currentPassword,
           });
@@ -523,7 +523,7 @@ export default function ChangePassword({ user, onSuccess }) {
             return;
           }
 
-          const { error: updateError } = await supabase.auth.updateUser({
+          const { error: updateError } = await portalApi.auth.updateUser({
             password: newPassword,
           });
           if (updateError) throw updateError;
