@@ -271,11 +271,29 @@ export function useReviewData() {
       // Get actual submissions from database
       const submissionsData = await apiRequest(`/review/applications/${applicationId}/submissions`);
 
+      const resolveSubmissionFilePath = (submission) => {
+        if (!submission) return null;
+
+        return submission.file_path
+          || submission.storage_path
+          || submission.file_url
+          || submission.download_url
+          || submission.url
+          || submission.path
+          || submission.object_path
+          || null;
+      };
+
       const submissions = (submissionsData || []).map(submissionData => {
         const area = areas.find(a => a.area_id === submissionData.area_id);
+        const filePath = resolveSubmissionFilePath(submissionData);
+
         return {
           id: submissionData.submission_id,
           ...submissionData,
+          file_path: filePath,
+          storage_path: submissionData.storage_path || null,
+          file_url: submissionData.file_url || null,
           area: area || { area_name: `Unknown Area ${submissionData.area_id}`, max_possible_points: 0 }
         };
       });

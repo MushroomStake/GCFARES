@@ -481,17 +481,23 @@ class ReviewController extends Controller
             'part_id' => $validated['part_id'] ?? null,
             'hr_points' => $validated['hr_points'],
             'csv_total_average_rate' => $validated['csv_total_average_rate'] ?? null,
-            'file_path' => $validated['file_path'] ?? null,
             'uploaded_at' => now(),
         ];
 
         if ($match) {
+            if (array_key_exists('file_path', $validated)) {
+                $payload['file_path'] = $validated['file_path'];
+            } else {
+                $payload['file_path'] = $match->file_path;
+            }
+
             DB::table('area_submissions')
                 ->where('submission_id', $match->submission_id)
                 ->update($payload);
 
             $submissionId = $match->submission_id;
         } else {
+            $payload['file_path'] = $validated['file_path'] ?? null;
             $payload['user_id'] = DB::table('applications')->where('application_id', $validated['application_id'])->value('faculty_id');
             $submissionId = DB::table('area_submissions')->insertGetId($payload, 'submission_id');
         }

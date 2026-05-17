@@ -136,18 +136,31 @@ function toCanonicalDepartmentCodeFromName(name) {
   return null;
 }
 
-// Helper function to convert storage path to public URL
+// Helper function to convert storage path to a Laravel public storage URL
 function getPublicFileUrl(storagePath) {
   if (!storagePath) return null;
-  
-  // If it's already a full URL, return as-is
-  if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
+
+  if (String(storagePath).startsWith('http://') || String(storagePath).startsWith('https://')) {
+    try {
+      const parsed = new URL(String(storagePath));
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001/api';
+      const origin = apiBaseUrl.replace(/\/api\/?$/, '');
+      if ((parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') && parsed.pathname.includes('/storage/')) {
+        return `${origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    } catch (e) {
+      // ignore URL parse errors and fall through
+    }
+
     return storagePath;
   }
 
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001/api';
   const origin = apiBaseUrl.replace(/\/api\/?$/, '');
-  return `${origin}/storage/${encodeURI(String(storagePath).replace(/^\/+/, ''))}`;
+  const normalizedPath = String(storagePath).replace(/^\/+/, '').replace(/^storage\/+/, '');
+  const publicPath = normalizedPath.startsWith('documents/') ? normalizedPath : `documents/${normalizedPath}`;
+
+  return `${origin}/storage/${publicPath.split('/').map((segment) => encodeURIComponent(segment)).join('/')}`;
 }
 
 const CRITERIA_DEFINITIONS = {
@@ -985,6 +998,10 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                   })?.[1] || null;
                 }
 
+                if (!partSubmissionFile && submission?.file_path) {
+                  partSubmissionFile = getPublicFileUrl(submission.file_path);
+                }
+
                 if (i === 0) {
                   console.log('[ScoringCriteriaPanel] File lookup for criterion 0:', {
                     partLabel,
@@ -1079,156 +1096,11 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
 
       {/* File Viewer Modal */}
       {viewerModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10000,
-        }}>
-          <div style={{
-            background: 'white',
-            borderRadius: '8px',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-            width: '90%',
-            height: '90vh',
-            maxWidth: '1200px',
-            display: 'flex',
-            flexDirection: 'column',
-          }}>
-            {/* Header */}
-            <div style={{
-              padding: '16px 20px',
-              borderBottom: '1px solid #e5e7eb',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}>
-              <div style={{ fontSize: '16px', fontWeight: '600', color: '#1f2937' }}>
-                Document Viewer
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const publicUrl = getPublicFileUrl(viewerModalFile);
-                      const resp = await fetch(publicUrl);
-                      if (!resp.ok) throw new Error('Failed to fetch file');
-                      const blob = await resp.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      const link = document.createElement('a');
-                      link.href = url;
-                      link.download = viewerModalFile?.split('/').pop() || 'document';
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                      window.URL.revokeObjectURL(url);
-                    } catch (err) {
-                      console.warn('Download failed (likely CORS), falling back to open in new tab:', err);
-                      window.open(getPublicFileUrl(viewerModalFile), '_blank');
-                    }
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '4px',
-                    border: '1px solid #d1d5db',
-                    background: '#f3f4f6',
-                    color: '#374151',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#e5e7eb';
-                    e.target.style.borderColor = '#9ca3af';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = '#f3f4f6';
-                    e.target.style.borderColor = '#d1d5db';
-                  }}
-                >
-                  ↓ Download
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewerModalOpen(false)}
-                  style={{
-                    fontSize: '24px',
-                    cursor: 'pointer',
-                    background: 'none',
-                    border: 'none',
-                    color: '#6b7280',
-                    padding: '0',
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div style={{ flex: 1, overflow: 'auto', background: '#f9fafb' }}>
-              {viewerModalFile && viewerModalFile.endsWith('.pdf') ? (
-                <iframe
-                  src={getPublicFileUrl(viewerModalFile)}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    border: 'none',
-                  }}
-                  title="Document Viewer"
-                />
-              ) : viewerModalFile ? (
-                <div style={{
-                  padding: '40px',
-                  textAlign: 'center',
-                  color: '#666',
-                }}>
-                  <p>Preview not available for this file type.</p>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        const publicUrl = getPublicFileUrl(viewerModalFile);
-                        const resp = await fetch(publicUrl);
-                        if (!resp.ok) throw new Error('Failed to fetch file');
-                        const blob = await resp.blob();
-                        const url = window.URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        link.href = url;
-                        link.download = viewerModalFile?.split('/').pop() || 'document';
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        window.URL.revokeObjectURL(url);
-                      } catch (err) {
-                        console.warn('Download failed (likely CORS), falling back to open in new tab:', err);
-                        window.open(getPublicFileUrl(viewerModalFile), '_blank');
-                      }
-                    }}
-                    style={{
-                      color: '#0ea5e9',
-                      textDecoration: 'underline',
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Click here to download the file
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
+        <DocumentViewer
+          fileUrl={viewerModalFile}
+          fileName={viewerModalFile?.split('/').pop() || 'document'}
+          onClose={() => setViewerModalOpen(false)}
+        />
       )}
 
       {areaIVModalOpen && area?.area_id === 7 && (
