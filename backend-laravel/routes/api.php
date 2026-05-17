@@ -13,9 +13,9 @@ Route::post('/test-encryption', function (Request $request) {
         'message' => 'The Laravel middleware successfully decrypted your payload!',
         'you_sent' => $request->all() // Returns the decrypted data back to you
     ]);
-});
+})->middleware('api.token:HR');
 
-Route::prefix('hr')->controller(UserManagementController::class)->group(function () {
+Route::prefix('hr')->middleware('api.token:HR')->controller(UserManagementController::class)->group(function () {
     Route::get('/users', 'index');
     Route::post('/users', 'store');
     Route::put('/users/{userId}', 'update');
@@ -32,7 +32,7 @@ Route::prefix('hr')->controller(UserManagementController::class)->group(function
     Route::delete('/cycles/{cycleId}/participants/{facultyId}', 'removeParticipant');
 });
 
-Route::prefix('review')->controller(ReviewController::class)->group(function () {
+Route::prefix('review')->middleware('api.token:HR')->controller(ReviewController::class)->group(function () {
     Route::get('/cycles', 'cycles');
     Route::get('/departments', 'departments');
     Route::get('/areas', 'areas');
@@ -51,11 +51,12 @@ Route::prefix('review')->controller(ReviewController::class)->group(function () 
     Route::post('/submission-scoring/{submissionId}', 'updateSubmissionScoring');
     Route::get('/storage-url', 'storagePublicUrl');
     Route::get('/templates', 'templates');
+    Route::get('/templates/{templateId}/file', 'templateFile');
     Route::post('/templates/upload', 'uploadTemplate');
 });
 
 Route::prefix('auth')->controller(AuthController::class)->group(function () {
-    Route::post('/login', 'login');
+    Route::post('/login', 'login')->middleware('throttle:5,1');
     Route::post('/validate', 'validateToken');
     Route::post('/logout', 'logout');
 });

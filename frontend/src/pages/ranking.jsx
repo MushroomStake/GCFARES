@@ -35,8 +35,36 @@ const ViewIcon = () => (
 
 const TEMPLATE_BUCKET = 'documents';
 const TEMPLATE_ROOT_FOLDER = 'Templates';
+const AREA_ID_OFFSET = 3;
 
 const makeTemplateKey = (areaId, partId) => `${Number(areaId)}::${String(partId || '').trim()}`;
+
+const getDatabaseAreaId = (area) => {
+  const rawValue = area?.dbAreaId ?? area?.areaDbId;
+  const value = Number(rawValue ?? 0);
+
+  if (Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  const uiAreaId = Number(area?.areaId ?? 0);
+  if (!Number.isFinite(uiAreaId) || uiAreaId <= 0) {
+    return 0;
+  }
+
+  return uiAreaId + AREA_ID_OFFSET;
+};
+
+const getUiAreaIdFromDatabaseId = (databaseAreaId) => {
+  const numericDatabaseAreaId = Number(databaseAreaId);
+  const matchedArea = RANKING_RUBRICS.find((area) => getDatabaseAreaId(area) === numericDatabaseAreaId);
+  if (matchedArea?.areaId) {
+    return matchedArea.areaId;
+  }
+
+  const uiAreaId = numericDatabaseAreaId - AREA_ID_OFFSET;
+  return uiAreaId > 0 ? uiAreaId : numericDatabaseAreaId;
+};
 
 const toAreaFolderName = (areaId) => `Area ${String(Number(areaId)).padStart(2, '0')}`;
 
@@ -67,6 +95,14 @@ export default function Ranking() {
   const selectedArea = RANKING_RUBRICS.find((area) => area.areaId === selectedAreaId);
 
   useEffect(() => {
+    return () => {
+      if (previewTemplate?.objectUrl) {
+        URL.revokeObjectURL(previewTemplate.objectUrl);
+      }
+    };
+  }, [previewTemplate]);
+
+  useEffect(() => {
     const loadTemplates = async () => {
       const templates = {};
 
@@ -77,7 +113,9 @@ export default function Ranking() {
         console.error('Error loading area_part_templates:', error);
       }
 
-      const templateMap = new Map(dbTemplates.map((row) => [makeTemplateKey(row.area_id, row.part_id), row]));
+      const templateMap = new Map(
+        dbTemplates.map((row) => [makeTemplateKey(getUiAreaIdFromDatabaseId(row.area_id), row.part_id), row])
+      );
 
       for (const area of RANKING_RUBRICS) {
         for (const subArea of area.subAreas) {
@@ -103,7 +141,7 @@ export default function Ranking() {
             }
           }
 
-          const folderPath = `${TEMPLATE_ROLE_FOLDER}/area-${area.areaId}/sub-${subArea.id}`;
+          const folderPath = `${TEMPLATE_ROOT_FOLDER}/area-${area.areaId}/sub-${subArea.id}`;
 
           // Listing bucket contents and uploads are not yet implemented on the backend.
           // If no DB record exists, we skip auto-discovery for now.
@@ -116,6 +154,50 @@ export default function Ranking() {
     loadTemplates();
   }, []);
 
+  const openPreviewTemplate = async (template) => {
+    if (!template?.templateId) {
+      alert('Template preview is not available yet. Please upload the file again.');
+      return;
+    }
+
+    try {
+      if (previewTemplate?.objectUrl) {
+        URL.revokeObjectURL(previewTemplate.objectUrl);
+      }
+
+      const token = (() => {
+        try {
+          return localStorage.getItem('api_token');
+        } catch {
+          return null;
+        }
+      })();
+
+      const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001/api').replace(/\/$/, '');
+      const previewUrl = `${apiBase}/review/templates/${template.templateId}/file`;
+      const headers = { Accept: 'application/pdf,application/octet-stream,*/*' };
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(previewUrl, { headers });
+      if (!response.ok) {
+        throw new Error(`Unable to load template preview (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      setPreviewTemplate({
+        ...template,
+        objectUrl,
+      });
+    } catch (error) {
+      console.error('Error opening template preview:', error);
+      alert('Failed to open template preview. Please try again.');
+    }
+  };
+
   const handleFileUpload = async (areaId, subAreaId, event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -123,12 +205,12 @@ export default function Ranking() {
     const fileNameLower = String(file.name || '').toLowerCase();
     const isAllowedTemplate =
       file.type === 'application/pdf' ||
-      file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-      fileNameLower.endsWith('.xlsx') ||
-      fileNameLower.endsWith('.pdf');
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      fileNameLower.endsWith('.pdf') ||
+      fileNameLower.endsWith('.docx');
 
     if (!isAllowedTemplate) {
-      alert('Invalid file type. Please upload PDF or XLSX files only.');
+      alert('Invalid file type. Please upload PDF or DOCX files only.');
       return;
     }
 
@@ -140,17 +222,37 @@ export default function Ranking() {
     const selectedArea = RANKING_RUBRICS.find((area) => Number(area.areaId) === Number(areaId));
     const selectedSubArea = selectedArea?.subAreas.find((subArea) => String(subArea.id) === String(subAreaId));
     const path = `${TEMPLATE_ROOT_FOLDER}/${toAreaFolderName(areaId)}/${toPartFolderName(selectedSubArea || { id: subAreaId, label: String(subAreaId).split('_').pop() })}/template.xlsx`;
+    const databaseAreaId = selectedArea ? getDatabaseAreaId(selectedArea) : Number(areaId);
 
     try {
       const form = new FormData();
-      form.append('area_id', String(areaId));
+      form.append('area_id', String(databaseAreaId));
       form.append('part_id', String(subAreaId));
       form.append('file', file);
 
-      const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8002/api').replace(/\/api\/?$/, '');
-      const response = await fetch(`${apiBase}/review/templates/upload`, {
+      const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001/api').replace(/\/$/, '');
+      const uploadUrl = apiBase.endsWith('/api') ? `${apiBase}/review/templates/upload` : `${apiBase}/api/review/templates/upload`;
+
+      const token = (() => {
+        try {
+          return localStorage.getItem('api_token');
+        } catch {
+          return null;
+        }
+      })();
+
+      const headers = {
+        Accept: 'application/json',
+      };
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         body: form,
+        headers,
       });
 
       if (!response.ok) {
@@ -165,6 +267,7 @@ export default function Ranking() {
           fileName: json.file_name,
           fileUrl: json.url,
           storagePath: json.storage_path,
+          templateId: json.template_id,
         },
       }));
 
@@ -243,30 +346,32 @@ export default function Ranking() {
                             )}
                           </div>
 
-                          <input
-                            type="file"
-                            id={`file-input-${selectedArea.areaId}-${subArea.id}`}
-                            style={{ display: 'none' }}
-                            onChange={(e) => handleFileUpload(selectedArea.areaId, subArea.id, e)}
-                            accept=".pdf"
-                          />
-
                           <div className="rk-subarea-actions">
                             {hasTemplate ? (
                               <>
-                                <span className="rk-file-pill">
+                                <span className="rk-file-pill" title={template.fileName}>
                                   <CheckCircleIcon />
-                                  {template.fileName}
+                                  <span className="rk-file-pill__text">{template.fileName}</span>
                                 </span>
                                 <button
                                   type="button"
                                   className="rk-action-button rk-action-button--primary"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setPreviewTemplate(template);
+                                    void openPreviewTemplate(template);
                                   }}
                                 >
                                   <ViewIcon /> View
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rk-action-button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUploadClick(selectedArea.areaId, subArea.id);
+                                  }}
+                                >
+                                  <UploadIcon /> Replace
                                 </button>
                               </>
                             ) : (
@@ -282,6 +387,14 @@ export default function Ranking() {
                               </button>
                             )}
                           </div>
+
+                          <input
+                            type="file"
+                            id={`file-input-${selectedArea.areaId}-${subArea.id}`}
+                            style={{ display: 'none' }}
+                            onChange={(e) => handleFileUpload(selectedArea.areaId, subArea.id, e)}
+                            accept=".pdf,.docx"
+                          />
                         </div>
                       );
                     })}
@@ -309,7 +422,7 @@ export default function Ranking() {
                 </div>
                 <div className="rk-preview__body">
                   <iframe
-                    src={`${previewTemplate.fileUrl}#toolbar=1&navpanes=0&scrollbar=1`}
+                    src={`${previewTemplate.objectUrl || previewTemplate.fileUrl}#toolbar=1&navpanes=0&scrollbar=1`}
                     title={previewTemplate.fileName}
                     className="rk-preview__iframe"
                   />

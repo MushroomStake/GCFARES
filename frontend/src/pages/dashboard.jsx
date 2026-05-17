@@ -477,6 +477,38 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
         // Get submissions for this application
         const submissionsData = await apiRequest(`/review/applications/${encodeURIComponent(applicationId)}/submissions`);
 
+        const scoringBySubmissionId = {};
+        const scoringCriteriaBySubmissionId = {};
+        await Promise.all((submissionsData || []).map(async (submission) => {
+          if (!submission?.submission_id) return;
+
+          try {
+            const scoringData = await apiRequest(`/review/submission-scoring/${encodeURIComponent(submission.submission_id)}`);
+            const totalScore = Number(scoringData?.totalScore ?? 0) || 0;
+            scoringBySubmissionId[String(submission.submission_id)] = totalScore;
+
+            const criterionMap = {};
+            (Array.isArray(scoringData?.criteria) ? scoringData.criteria : []).forEach((criterion) => {
+              const rawScore = Number(criterion?.score ?? 0) || 0;
+              const cappedScore = Number(criterion?.capped_score ?? rawScore) || 0;
+              const excessScore = Number(criterion?.excess_score ?? 0) || 0;
+              const keys = [criterion?.criterion_key, criterion?.label, criterion?.title]
+                .flatMap((key) => [key, normalizePartLookupKey(key)])
+                .filter(Boolean);
+
+              keys.forEach((key) => {
+                criterionMap[String(key)] = { score: rawScore, cappedScore, excessScore };
+              });
+            });
+
+            scoringCriteriaBySubmissionId[String(submission.submission_id)] = criterionMap;
+          } catch (error) {
+            const fallbackScore = Number(submission.hr_points ?? submission.vpaa_points ?? submission.csv_total_average_rate ?? 0) || 0;
+            scoringBySubmissionId[String(submission.submission_id)] = fallbackScore;
+            scoringCriteriaBySubmissionId[String(submission.submission_id)] = {};
+          }
+        }));
+
         let userData = null;
         if (applicationData?.faculty) {
           userData = applicationData.faculty;
@@ -484,15 +516,6 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
           const users = await apiRequest('/hr/users');
           userData = (users || []).find(u => Number(u.user_id) === Number(applicationData.faculty_id)) || null;
         }
-
-        const scoreMap = {};
-        (submissionsData || []).forEach((submission) => {
-          const score = Number(submission.hr_points || submission.csv_total_average_rate || submission.vpaa_points || 0) || 0;
-          if (score > 0 && submission.part_id) {
-            scoreMap[normalizePartLookupKey(submission.part_id)] = { score, submissionId: submission.submission_id };
-            scoreMap[String(submission.part_id)] = { score, submissionId: submission.submission_id };
-          }
-        });
 
         const fetchedSubmissions = {};
         const titleMap = {};
@@ -510,11 +533,14 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
           const rubricAreaId = DB_AREA_ID_TO_RUBRIC_AREA_ID[dbId] || dbId;
           const rubricArea = RANKING_RUBRICS.find((item) => Number(item.areaId) === Number(rubricAreaId));
           const criteriaDefinitions = flattenAreaCriteria(rubricArea);
-          const submissions = fetchedSubmissions[String(area.area_id)] || [];
+            const submissions = fetchedSubmissions[String(area.area_id)] || [];
           const submissionLookup = {};
           let areaCurrentPoints = 0;
 
           submissions.forEach((submission) => {
+            const submissionPoints = Number(scoringBySubmissionId[String(submission.submission_id)] ?? submission.vpaa_points ?? submission.hr_points ?? submission.csv_total_average_rate ?? 0) || 0;
+            areaCurrentPoints += submissionPoints;
+
             if (!submission.file_path) return;
 
             let rawKey = submission.part_id || null;
@@ -527,9 +553,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
 
             const partKey = normalizePartLookupKey(rawKey || 'other');
             const fullFileUrl = getPublicFileUrl(submission.file_path) || '';
-            const fileName = String(submission.file_path).split('/').pop() || 'Untitled File';
-            const submissionPoints = Number(submission.vpaa_points ?? submission.hr_points ?? submission.csv_total_average_rate ?? 0) || 0;
-            areaCurrentPoints += submissionPoints;
+            const fileName = String(submission.file_path).split('/').pop() || rawKey || 'Untitled File';
 
             [rawKey, partKey, titleMap[submission.submission_id], submission.part_name].filter(Boolean).forEach((candidateKey) => {
               const normalizedCandidate = normalizePartLookupKey(candidateKey);
@@ -556,31 +580,111 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
             const normalizedCandidates = candidateKeys.flatMap((key) => [key, normalizePartLookupKey(key)]).filter(Boolean);
             const fileMatch = normalizedCandidates.map((key) => submissionLookup[key]).find(Boolean) || null;
 
-            let scoreRow = null;
+            let score = 0;
+            let matchedSubmissionId = null;
+            let cappedScore = 0;
+            let excessScore = 0;
+
             for (const key of normalizedCandidates) {
-              if (scoreMap[key]) {
-                scoreRow = scoreMap[key];
-                break;
+              const matchedSubmission = submissions.find((submission) => {
+                const submissionKeys = [
+                  submission.part_id,
+                  titleMap[submission.submission_id],
+                  submission.part_name,
+                ].flatMap((value) => [value, normalizePartLookupKey(value)]).filter(Boolean);
+
+                return submissionKeys.some((submissionKey) => String(submissionKey) === String(key));
+              });
+
+              if (matchedSubmission?.submission_id) {
+                matchedSubmissionId = String(matchedSubmission.submission_id);
+                const criterionScores = scoringCriteriaBySubmissionId[matchedSubmissionId] || {};
+                const criterionKeys = [criterion.criterionKey, criterion.label, criterion.title]
+                  .flatMap((value) => [value, normalizePartLookupKey(value)])
+                  .filter(Boolean);
+
+                const matchedScore = criterionKeys
+                  .map((criterionKey) => criterionScores[String(criterionKey)])
+                  .find((value) => value !== undefined);
+
+                if (matchedScore !== undefined) {
+                  // matchedScore may be an object with raw score, cappedScore and excessScore
+                  if (typeof matchedScore === 'object' && matchedScore !== null) {
+                    score = Number(matchedScore.score || 0) || 0; // raw score shown in review UI
+                    cappedScore = Number(matchedScore.cappedScore || 0) || 0;
+                    excessScore = Number(matchedScore.excessScore || 0) || 0;
+                  } else {
+                    score = Number(matchedScore || 0) || 0;
+                    cappedScore = score;
+                    excessScore = 0;
+                  }
+
+                  break;
+                }
+                // No matchedScore found for this matched submission. Log diagnostic info to help map keys.
+                if (process && process.env && process.env.NODE_ENV !== 'production') {
+                  console.warn('[HistoryFacultyModal] No matched criterion for submission', {
+                    submissionId: matchedSubmissionId,
+                    criterion: { criterionKey: criterion.criterionKey, label: criterion.label, title: criterion.title },
+                    candidateKeys: criterionKeys,
+                    submissionKeys: [submission.part_id, titleMap[submission.submission_id], submission.part_name].flatMap((v) => [v, normalizePartLookupKey(v)]),
+                    knownCriterionKeys: Object.keys(scoringCriteriaBySubmissionId[matchedSubmissionId] || {}).slice(0, 20),
+                    sampleCriteria: scoringCriteriaBySubmissionId[matchedSubmissionId],
+                  });
+                }
+                // Continue searching other submissions
               }
             }
 
-            const score = scoreRow ? Number(scoreRow.score || 0) : 0;
+            // If we still don't have a score, try scanning all submissions' criterion maps
+            if (!score) {
+              for (const s of submissions) {
+                const sId = String(s.submission_id);
+                const criterionScores = (scoringCriteriaBySubmissionId && scoringCriteriaBySubmissionId[sId]) || {};
+                const criterionKeys = [criterion.criterionKey, criterion.label, criterion.title]
+                  .flatMap((value) => [value, normalizePartLookupKey(value)])
+                  .filter(Boolean);
+
+                const found = criterionKeys.map((k) => criterionScores[String(k)]).find((v) => v !== undefined);
+                if (found !== undefined) {
+                  if (typeof found === 'object' && found !== null) {
+                    cappedScore = Number(found.cappedScore || 0) || 0;
+                    excessScore = Number(found.excessScore || 0) || 0;
+                    score = cappedScore;
+                  } else {
+                    score = Number(found || 0) || 0;
+                    cappedScore = score;
+                    excessScore = 0;
+                  }
+                  matchedSubmissionId = sId;
+                  break;
+                }
+              }
+            }
+            // Do not default to submission totals for criterion rows; leave as zero
+
             return {
               criterionKey: criterion.criterionKey,
               label: criterion.label,
               title: criterion.title,
               maxPoints: criterion.maxPoints,
-              score,
+              score: Number(score || 0),
+              cappedScore: Number(cappedScore || 0),
+              excessScore: Number(excessScore || 0),
               fileUrl: fileMatch?.url || null,
               fileName: fileMatch?.fileName || 'Untitled File',
             };
           });
 
+          const areaCappedTotal = criteriaRows.reduce((s, r) => s + Number(r.cappedScore || 0), 0);
+          const areaExcessTotal = criteriaRows.reduce((s, r) => s + Number(r.excessScore || 0), 0);
+
           return {
             id: String(area.area_id),
             title: area.area_name || `Area ${area.area_id}`,
             max: Number(area.max_possible_points) || 0,
-            current: areaCurrentPoints,
+            current: areaCappedTotal,
+            excess: areaExcessTotal,
             criteriaRows,
             color: 'bg-[#0a5e2f]',
           };
@@ -616,8 +720,8 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
   const middleInitial = fullUserData?.name_middle ? `${fullUserData.name_middle.charAt(0)}.` : '';
   const lastName = fullUserData?.name_last || app.faculty?.name_last || '';
   const fullName = `${firstName} ${middleInitial} ${lastName}`.trim() || 'N/A';
-  const departmentName = fullUserData?.departments?.department_name || app.faculty?.departments?.department_name || app.faculty?.department_id || 'Not specified';
-  const departmentCode = fullUserData?.departments?.department_code || app.faculty?.departments?.department_code || null;
+  const departmentName = fullUserData?.department_name || fullUserData?.departments?.department_name || app.faculty?.department_name || app.faculty?.departments?.department_name || 'Not specified';
+  const departmentCode = fullUserData?.department_code || fullUserData?.departments?.department_code || app.faculty?.department_code || app.faculty?.departments?.department_code || null;
   const departmentDisplay = departmentCode || departmentName;
   const totalPoints = areas.reduce((sum, area) => sum + Number(area.current || 0), 0);
   const fileViewerOpen = fileModalOpen && selectedFile;
@@ -746,7 +850,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
                     </div>
                     <div>
                       <p style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>Last Promotion</p>
-                      <p style={{ fontSize: '14px', fontWeight: 600, color: '#1f2937' }}>{fullUserData?.date_of_last_promotion ? new Date(fullUserData.date_of_last_promotion).toLocaleDateString() : 'Not specified'}</p>
+                      <p style={{ fontSize: '14px', fontWeight: 600, color: '#1f2937' }}>{(fullUserData?.last_promotion_date || fullUserData?.date_of_last_promotion || app.faculty?.last_promotion_date || app.faculty?.date_of_last_promotion) ? new Date(fullUserData?.last_promotion_date || fullUserData?.date_of_last_promotion || app.faculty?.last_promotion_date || app.faculty?.date_of_last_promotion).toLocaleDateString() : 'Not specified'}</p>
                     </div>
                   </div>
                 </section>
@@ -768,7 +872,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
                       <button type="button" onClick={() => toggleAreaAccordion(idx)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', border: 'none', background: '#fff', cursor: 'pointer', textAlign: 'left' }}>
                         <div style={{ paddingRight: '20px' }}>
                           <p style={{ fontSize: '13px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>{area.title}</p>
-                          <p style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 500 }}>Max: {Number(area.max || 0).toFixed(2)} pts <span style={{ color: '#f59e0b', marginLeft: '4px' }}>+0 excess</span></p>
+                          <p style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 500 }}>Max: {Number(area.max || 0).toFixed(2)} pts <span style={{ color: '#f59e0b', marginLeft: '4px' }}>+{Number(area.excess || 0).toFixed(2)} excess</span></p>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#0a5e2f' }}>
                           <span style={{ fontSize: '14px', fontWeight: 700 }}>{Number(area.current || 0).toFixed(2)} pts</span>
@@ -803,7 +907,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
                                         {hasMaxPoints ? Number(criterion.maxPoints).toFixed(2) : '—'}
                                       </td>
                                       <td style={{ padding: '12px', fontSize: '11px', fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>
-                                        {Number(criterion.score || 0).toFixed(2)}
+                                        {Number(criterion.score ?? 0).toFixed(2)}
                                       </td>
                                       <td style={{ padding: '12px', textAlign: 'center' }}>
                                         {criterion.fileUrl ? (
@@ -1769,8 +1873,8 @@ export default function Dashboard() {
     const matchesSearch = pastSearchTerm === '' ||
       `${app.faculty?.name_last} ${app.faculty?.name_first}`.toLowerCase().includes(pastSearchTerm.toLowerCase());
     
-    const deptCode = app.faculty?.departments?.department_code || '';
-    const deptName = app.faculty?.departments?.department_name || app.faculty?.department_id || '';
+    const deptCode = app.faculty?.department_code || app.faculty?.departments?.department_code || '';
+    const deptName = app.faculty?.department_name || app.faculty?.departments?.department_name || '';
     const matchesDept = pastDepartmentFilter === 'all' || 
       String(deptCode || deptName).toLowerCase() === pastDepartmentFilter.toLowerCase();
 
@@ -1873,7 +1977,7 @@ export default function Dashboard() {
                       <tr key={app.application_id} style={{ borderBottom: '1px solid #e5e7eb' }}>
                         <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563' }}>{pastStartIndex + index + 1}</td>
                         <td style={{ padding: '12px 16px', fontSize: '14px', color: '#111827', fontWeight: '500' }}>{app.faculty?.name_last}, {app.faculty?.name_first}</td>
-                        <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563' }}>{app.faculty?.departments?.department_code || app.faculty?.departments?.department_name || app.faculty?.department_id || 'N/A'}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563' }}>{app.faculty?.department_code || app.faculty?.departments?.department_code || app.faculty?.department_name || app.faculty?.departments?.department_name || 'N/A'}</td>
                         <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563' }}>{app.faculty?.current_rank || 'N/A'}</td>
                         <td style={{ padding: '12px 16px', fontSize: '14px', color: '#111827', fontWeight: '500' }}>{Number(app.hr_score ?? 0).toFixed(2)}</td>
                         <td style={{ padding: '12px 16px', fontSize: '14px' }}>

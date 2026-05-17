@@ -395,6 +395,13 @@ export default function Review() {
       return;
     }
 
+    // Prevent saving criteria when the application has been finalized by VPAA.
+    // Allow saves when status is HR_Completed (HR should still be able to adjust scores).
+    if (reviewData.selectedApplication && reviewData.selectedApplication.status === 'VPAA_Completed') {
+      alert('Scoring is locked after VPAA completion. Edits are not allowed.');
+      return;
+    }
+
     // Optimistic UI: update the local submissions immediately and show a small inline saving state
     try {
       const optimisticTotalScore = (criteriaScores || []).reduce((sum, c) => sum + Number(c.score || 0), 0);

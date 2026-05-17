@@ -34,7 +34,7 @@ class AuthController extends Controller
         }
 
         $token = bin2hex(random_bytes(32));
-        Cache::put('api_token_'.$token, $user->user_id, 60 * 60 * 24);
+        $this->tokenCache()->put('api_token_'.$token, $user->user_id, 60 * 60 * 24);
 
         return response()->json([
             'token' => $token,
@@ -49,12 +49,12 @@ class AuthController extends Controller
 
     public function validateToken(Request $request)
     {
-        $validated = $request->validate([
-            'token' => ['required', 'string'],
-        ]);
+        $token = $request->bearerToken();
+        if (!$token) {
+            return response()->json(['error' => 'Unauthorized. Bearer token is required.'], 401);
+        }
 
-        $token = $validated['token'];
-        $userId = Cache::get('api_token_'.$token);
+        $userId = $this->tokenCache()->get('api_token_'.$token);
         if (!$userId) {
             return response()->json(['valid' => false], 401);
         }
@@ -77,11 +77,17 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $validated = $request->validate([
-            'token' => ['required', 'string'],
-        ]);
+        $token = $request->bearerToken();
+        if (!$token) {
+            return response()->json(['error' => 'Unauthorized. Bearer token is required.'], 401);
+        }
 
-        Cache::forget('api_token_'.$validated['token']);
+        $this->tokenCache()->forget('api_token_'.$token);
         return response()->json(['ok' => true]);
+    }
+
+    private function tokenCache()
+    {
+        return Cache::store('file');
     }
 }

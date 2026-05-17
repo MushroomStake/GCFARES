@@ -412,7 +412,26 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
       const areaRubric = RANKING_RUBRICS.find((r) => Number(r.areaId) === Number(resolvedAreaId));
       if (!areaRubric) return 0;
       const normalize = (str) => String(str || '').trim().toLowerCase().replace(/[^\w]/g, '');
-      const partLabel = partId ? String(partId).trim().split(/[-_\s\/]+/).pop() : null;
+      // Prefer explicit partId passed from submission, but if missing try to infer
+      // from the stored criterionKey. Some backend fallbacks write keys like
+      // "submission:placeholder-8-3" or "part:3" or "file:basename". Try to
+      // extract a usable part label (often the last numeric segment) so rubric
+      // lookup can succeed.
+      let partLabel = null;
+      if (partId) {
+        partLabel = String(partId).trim().split(/[-_\s\/]+/).pop();
+      } else if (criterionKey) {
+        const ck = String(criterionKey).trim();
+        // Match patterns like submission:placeholder-8-3 -> capture final segment '3'
+        let m = ck.match(/(?:submission|file|part):(?:.*?-)?(\d+)$/i);
+        if (m && m[1]) {
+          partLabel = m[1];
+        } else {
+          // Fallback: take last token after non-word separators
+          const tokens = ck.split(/[-_:\s\/]+/).filter(Boolean);
+          if (tokens.length) partLabel = tokens[tokens.length - 1];
+        }
+      }
       const normalizedKey = normalize(criterionKey);
 
       const findInList = (list) => {
@@ -455,24 +474,66 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
     }
   };
 
-  const activeCriteria = (criteria && criteria.length > 0 ? criteria : fallbackCriteria).map((criterion) => {
-    const key = criterion.criterion_key || criterion.label;
-    const providedMax = Number(criterion.maxPoints ?? criterion.max_points ?? criterion.max ?? 0);
-    const rubricMax = getRubricMaxForCriterion(area?.area_id || 1, key, submission?.part_id, area?.area_name || area?.label);
-    const finalMax = providedMax > 0 ? providedMax : (rubricMax > 0 ? rubricMax : 0);
+  // Build the canonical list of criteria to render.
+  // Start with the full rubric-derived fallbackCriteria so every sub-area/criterion
+  // is displayed. Then overlay any DB-provided criteria (scores or explicit maxes).
+  const buildActiveCriteria = () => {
+    const base = fallbackCriteria.map((c) => ({ ...c }));
 
-    const parsedScore = Number(criterion.score ?? 0);
-    const excess = Number(criterion.excessScore ?? criterion.excess_score ?? Math.max(0, parsedScore - finalMax));
+    // Map base by normalized key for quick overlay
+    const baseByKey = new Map();
+    base.forEach((b) => {
+      const k = String(b.criterion_key || b.label || '').trim();
+      baseByKey.set(k, b);
+    });
 
-    return {
-      criterion_key: key,
-      label: criterion.label || key || 'Unnamed Criterion',
-      title: criterion.title || key || criterion.label || '',
-      maxPoints: finalMax,
-      score: parsedScore,
-      excessScore: excess,
-    };
-  });
+    if (Array.isArray(criteria) && criteria.length > 0) {
+      for (const dbC of criteria) {
+        const k = String(dbC.criterion_key || dbC.label || '').trim();
+        if (!k) continue;
+        if (baseByKey.has(k)) {
+          const dest = baseByKey.get(k);
+          // overlay values from DB when present
+          if (dbC.maxPoints != null || dbC.max_points != null || dbC.max != null) {
+            dest.maxPoints = Number((dbC.maxPoints ?? dbC.max_points ?? dbC.max ?? dest.maxPoints) || 0);
+          }
+          if (dbC.score != null) dest.score = Number(dbC.score || 0);
+          if (dbC.excess_score != null || dbC.excessScore != null) dest.excessScore = Number((dbC.excess_score ?? dbC.excessScore) || 0);
+        } else {
+          // Unknown criterion found in DB — append it so it is visible
+          base.push({
+            criterion_key: k,
+            label: dbC.label || k,
+            title: dbC.title || dbC.label || k,
+            maxPoints: Number(dbC.maxPoints ?? dbC.max_points ?? dbC.max ?? 0),
+            score: Number(dbC.score ?? 0),
+            excessScore: Number(dbC.excess_score ?? dbC.excessScore ?? 0),
+          });
+        }
+      }
+    }
+
+    // Finalize each criterion by resolving rubric max if still missing
+    return base.map((criterion) => {
+      const key = criterion.criterion_key || criterion.label;
+      const providedMax = Number(criterion.maxPoints ?? criterion.max_points ?? criterion.max ?? 0);
+      const rubricMax = getRubricMaxForCriterion(area?.area_id || 1, key, submission?.part_id, area?.area_name || area?.label);
+      const finalMax = providedMax > 0 ? providedMax : (rubricMax > 0 ? rubricMax : 0);
+      const parsedScore = Number(criterion.score ?? 0);
+      const excess = Number(criterion.excessScore ?? criterion.excess_score ?? Math.max(0, parsedScore - finalMax));
+
+      return {
+        criterion_key: key,
+        label: criterion.label || key || 'Unnamed Criterion',
+        title: criterion.title || key || criterion.label || '',
+        maxPoints: finalMax,
+        score: parsedScore,
+        excessScore: excess,
+      };
+    });
+  };
+
+  const activeCriteria = buildActiveCriteria();
 
   const areaMaxPoints = Number(area?.maxPoints ?? area?.max ?? area?.max_possible_points ?? 85);
 
@@ -877,6 +938,10 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
               {draftCriteriaScores.map((criterion, i) => {
                 const paddingLeft = criterion.label && criterion.label.includes('.') ? '24px' : '8px';
                 const hasMaxPoints = Number(criterion.maxPoints || 0) > 0;
+                // Allow scoring input when the application is not finalized by VPAA.
+                // This ensures HR_Completed (and earlier statuses) can still input scores
+                // even when a per-criterion max is not present in the DB.
+                const allowScoreInput = hasMaxPoints || (selectedApplication && String(selectedApplication.status) !== 'VPAA_Completed');
                 
                 // Match the criterion label against raw or normalized submission part ids.
                 const partLabel = criterion.label || '';
@@ -942,7 +1007,7 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                       {hasMaxPoints ? criterion.maxPoints.toFixed(2) : '—'}
                     </td>
                     <td style={{ textAlign: 'right', padding: '8px 8px' }}>
-                      {hasMaxPoints ? (
+                      {allowScoreInput ? (
                         <input
                           id={`score-input-${criterion.criterion_key || i}`}
                           name={`score-${criterion.criterion_key || i}`}

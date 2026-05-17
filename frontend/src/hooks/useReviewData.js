@@ -362,12 +362,52 @@ export function useReviewData() {
 
           try {
             const scoringData = await apiRequest(`/review/submission-scoring/${submission.submission_id}`);
-            
-            const totalScore = Number(scoringData.totalScore || 0);
+
+            // If the backend has no per-criterion rows but the submission has a total,
+            // create a deterministic fallback criterion so UI remains consistent.
+            const existingCriteria = Array.isArray(scoringData?.criteria) ? scoringData.criteria : [];
+            if ((!existingCriteria || existingCriteria.length === 0) && Number(submission.hr_points || 0) > 0) {
+              try {
+                const partId = submission.part_id || null;
+                const filePath = submission.file_path || null;
+                const fallbackKey = partId ? `part:${partId}` : (filePath ? `file:${String(filePath).split('/').pop()}` : `submission:${submission.submission_id}`);
+                const fallbackLabel = partId || (filePath ? String(filePath).split('/').pop() : fallbackKey);
+                const scoreValue = Number(submission.hr_points ?? submission.vpaa_points ?? submission.csv_total_average_rate ?? 0) || 0;
+
+                const criteriaPayload = [{
+                  criterion_key: fallbackKey,
+                  label: fallbackLabel,
+                  title: 'Auto-created fallback criterion on view',
+                  maxPoints: submission.area?.max_possible_points || 0,
+                  score: scoreValue,
+                  cappedScore: scoreValue,
+                }];
+
+                await apiRequest(`/review/submission-scoring/${submission.submission_id}`, {
+                  method: 'PATCH',
+                  body: {
+                    criteria: criteriaPayload,
+                    context: {
+                      application_id: submission.application_id || null,
+                      area_id: submission.area_id || null,
+                      cycle_id: submission.cycle_id || null,
+                      part_id: submission.part_id || null,
+                      user_id: submission.user_id || null,
+                      file_path: submission.file_path || null,
+                      csv_total_average_rate: submission.csv_total_average_rate || null,
+                    }
+                  }
+                });
+              } catch (err) {
+                console.warn('Failed to upsert fallback criterion while reconciling on view for submission', submission.submission_id, err);
+              }
+            }
+
+            const totalScore = Number(scoringData.totalScore || submission.hr_points || 0);
             const areaMax = Number(submission.area?.max_possible_points || 85);
             const cappedScore = Math.min(totalScore, areaMax);
             const excessScore = Math.max(0, totalScore - areaMax);
-            
+
             return {
               ...submission,
               capped_score: cappedScore,

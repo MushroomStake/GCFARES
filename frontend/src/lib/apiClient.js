@@ -12,6 +12,14 @@ function getApiUrl(path) {
   return `${baseUrl}${normalizedPath}`;
 }
 
+function getStoredApiToken() {
+  try {
+    return localStorage.getItem('api_token');
+  } catch {
+    return null;
+  }
+}
+
 function ensureEncryptionKey() {
   const rawKeyBytes = encoder.encode(ENCRYPTION_KEY);
 
@@ -120,6 +128,11 @@ async function parseResponse(response) {
 export async function apiRequest(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = { ...(options.headers || {}) };
+  const token = getStoredApiToken();
+
+  if (token && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   // Ensure API returns JSON errors instead of HTML redirects
   if (!headers['Accept'] && !headers['accept']) {
     headers['Accept'] = 'application/json';
