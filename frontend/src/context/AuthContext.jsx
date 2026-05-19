@@ -8,7 +8,7 @@ import {
 	useMemo,
 	useState,
 } from "react";
-import { portalApi } from "../lib/portalApi";
+import { facultyApi } from "../lib/facultyApi";
 
 const AuthContext = createContext(undefined);
 
@@ -90,28 +90,9 @@ export function AuthProvider({ children }) {
 		let profileRow = null;
 
 		try {
-			if (currentUser.email) {
-				const byEmail = await portalApi
-					.from("users")
-					.select("*")
-					.eq("domain_email", currentUser.email)
-					.maybeSingle();
-
-				if (!byEmail.error) {
-					profileRow = byEmail.data;
-				}
-			}
-
-			if (!profileRow && currentUser.email) {
-				const byEmailFallback = await portalApi
-					.from("users")
-					.select("*")
-					.eq("email", currentUser.email)
-					.maybeSingle();
-
-				if (!byEmailFallback.error) {
-					profileRow = byEmailFallback.data;
-				}
+			const profileResult = await facultyApi.getProfile();
+			if (!profileResult.error) {
+				profileRow = profileResult.data?.profile ?? null;
 			}
 
 			setProfile(profileRow);
@@ -138,7 +119,7 @@ export function AuthProvider({ children }) {
 
 		const boot = async () => {
 			try {
-				const { data } = await portalApi.auth.getSession();
+				const { data } = await facultyApi.auth.getSession();
 				if (!mounted) return;
 
 				const nextSession = data?.session ?? null;
@@ -163,7 +144,7 @@ export function AuthProvider({ children }) {
 
 		const {
 			data: { subscription },
-		} = portalApi.auth.onAuthStateChange(async (_event, nextSession) => {
+		} = facultyApi.auth.onAuthStateChange(async (_event, nextSession) => {
 			if (!mounted) return;
 			setSession(nextSession ?? null);
 			setUser(nextSession?.user ?? null);
@@ -180,38 +161,7 @@ export function AuthProvider({ children }) {
 
 	useEffect(() => {
 		if (!user) return;
-
-		const userId = user?.id || user?.user_id || null;
-		const userEmail = user?.email || user?.user_metadata?.email || null;
-
-		const channel = portalApi
-			.channel(`faculty-users-${userId || userEmail || "current"}`)
-			.on(
-				"postgres_changes",
-				{
-					event: "*",
-					schema: "public",
-					table: "users",
-				},
-				(payload) => {
-					const changedRow = payload?.new || payload?.old || null;
-					if (!changedRow) return;
-
-					const changedUserId = changedRow.user_id || changedRow.id || null;
-					const changedEmail = changedRow.domain_email || changedRow.email || null;
-					const matchesUserId = userId !== null && String(changedUserId || "") === String(userId);
-					const matchesEmail = Boolean(userEmail) && String(changedEmail || "").toLowerCase() === String(userEmail).toLowerCase();
-
-					if (matchesUserId || matchesEmail) {
-						void hydrateProfile(user);
-					}
-				},
-			)
-			.subscribe();
-
-		return () => {
-			portalApi.removeChannel(channel);
-		};
+		void hydrateProfile(user);
 	}, [hydrateProfile, user]);
 
 	const refreshProfile = useCallback(async () => {
@@ -219,7 +169,7 @@ export function AuthProvider({ children }) {
 	}, [hydrateProfile, user]);
 
 	const signOut = useCallback(async () => {
-		await portalApi.auth.signOut();
+		await facultyApi.auth.signOut();
 	}, []);
 
 	const markFirstLoginComplete = useCallback(async () => {
@@ -233,15 +183,9 @@ export function AuthProvider({ children }) {
 			return;
 		}
 
-		for (const column of FIRST_LOGIN_COLUMNS) {
-			const { error } = await portalApi
-				.from("users")
-				.update({ [column]: false })
-				.eq(profile?.user_id ? "user_id" : "domain_email", profile?.user_id || user.email);
-
-			if (!error) {
-				break;
-			}
+		const { error } = await facultyApi.updateProfile({ is_first_login: false });
+		if (error) {
+			return;
 		}
 
 		setNeedsPasswordChange(false);

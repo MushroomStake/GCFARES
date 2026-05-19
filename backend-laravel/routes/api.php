@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\FacultyPortalController;
 use App\Http\Controllers\Api\DatabaseController;
 use App\Http\Controllers\Api\StorageController;
 use Illuminate\Http\Request;
@@ -24,6 +25,25 @@ Route::prefix('auth')->controller(AuthController::class)->group(function () {
 
 Route::prefix('database')->controller(DatabaseController::class)->group(function () {
     Route::post('/query', 'query');
+});
+
+Route::prefix('faculty')->middleware('api.token')->controller(FacultyPortalController::class)->group(function () {
+    Route::get('/bootstrap', 'bootstrap');
+    Route::get('/me', 'me');
+    Route::patch('/me', 'updateMe');
+    Route::get('/cycles', 'cycles');
+    Route::get('/areas', 'areas');
+    Route::get('/positions', 'positions');
+    Route::get('/notifications', 'notifications');
+    Route::patch('/notifications/{id}', 'markNotificationRead');
+    Route::get('/applications', 'applications');
+    Route::post('/applications', 'createApplication');
+    Route::patch('/applications/{applicationId}', 'updateApplication');
+    Route::get('/submissions', 'submissions');
+    Route::post('/submissions', 'createSubmission');
+    Route::patch('/submissions/{submissionId}', 'updateSubmission');
+    Route::delete('/submissions/{submissionId}', 'deleteSubmission');
+    Route::get('/templates', 'templates');
 });
 
 Route::prefix('storage')->middleware('api.token')->controller(StorageController::class)->group(function () {

@@ -85,21 +85,33 @@ class DatabaseController extends Controller
             return response()->json(['error' => 'No rows supplied for insert.'], 422);
         }
 
-        $primaryKey = self::PRIMARY_KEYS[$table] ?? null;
-        $inserted = [];
+        try {
+            $inserted = DB::transaction(function () use ($table, $rows) {
+                $primaryKey = self::PRIMARY_KEYS[$table] ?? null;
+                $insertedRows = [];
 
-        foreach ($rows as $row) {
-            $row = $this->sanitizeRow($row);
-            $query = DB::table($table);
+                foreach ($rows as $row) {
+                    $row = $this->sanitizeRow($row);
+                    $query = DB::table($table);
 
-            if ($primaryKey && Schema::hasColumn($table, $primaryKey)) {
-                $insertId = $query->insertGetId($row, $primaryKey);
-                $insertedRow = DB::table($table)->where($primaryKey, $insertId)->first();
-                $inserted[] = $insertedRow ? (array) $insertedRow : array_merge([$primaryKey => $insertId], $row);
-            } else {
-                $query->insert($row);
-                $inserted[] = $row;
-            }
+                    if ($primaryKey && Schema::hasColumn($table, $primaryKey)) {
+                        $insertId = $query->insertGetId($row, $primaryKey);
+                        $insertedRow = DB::table($table)->where($primaryKey, $insertId)->first();
+                        $insertedRows[] = $insertedRow ? (array) $insertedRow : array_merge([$primaryKey => $insertId], $row);
+                    } else {
+                        $query->insert($row);
+                        $insertedRows[] = $row;
+                    }
+                }
+
+                return $insertedRows;
+            });
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'error' => sprintf('Insert failed for table %s: %s', $table, $e->getMessage()),
+            ], 500);
         }
 
         if (!empty($payload['single'])) {
@@ -174,32 +186,12 @@ class DatabaseController extends Controller
         $order = $payload['order'] ?? null;
         if (is_array($order) && !empty($order['column'])) {
             $column = $this->resolveColumnName($table, $order['column'], $strict);
-            if ($column === null) {
-                if ($strict) {
-                    throw new HttpResponseException(response()->json(['error' => 'Invalid or unsupported column.'], 422));
-                }
+            $direction = strtolower((string) ($order['direction'] ?? $order['dir'] ?? 'asc'));
+            $query->orderBy($column, $direction === 'desc' ? 'desc' : 'asc');
 
-                $column = null;
-            }
-
-            $direction = strtolower((string) ($order['direction'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
-            if ($column !== null) {
-                $query->orderBy($column, $direction);
-            }
-        }
-
-        if (isset($payload['offset'])) {
-            $query->offset((int) $payload['offset']);
-        }
-
-        if (isset($payload['limit'])) {
-            $query->limit((int) $payload['limit']);
-        }
-
-        $select = $payload['select'] ?? '*';
-        if ($select !== '*' && $select !== ['*']) {
+            $select = $payload['select'] ?? null;
             $columns = is_string($select)
-                ? array_filter(array_map('trim', explode(',', $select)))
+                ? array_values(array_filter(array_map('trim', explode(',', $select))))
                 : (is_array($select) ? array_values(array_filter(array_map('trim', $select))) : ['*']);
 
             if ($columns !== ['*'] && $columns !== []) {

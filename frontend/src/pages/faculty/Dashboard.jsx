@@ -10,7 +10,7 @@ import History from "./tabs/History";
 import Profile from "./tabs/Profile";
 import Notifications from "./tabs/Notifications";
 import { LogOut } from "lucide-react";
-import { portalApi } from "../../lib/portalApi";
+import { facultyApi } from "../../lib/facultyApi";
 
 const NOTIFICATION_TABLE_CANDIDATES = "notifications,notification,alerts"
     .split(",")
@@ -65,24 +65,8 @@ function normalizeNotificationRow(row, index) {
 }
 
 async function queryNotifications(limit = 50) {
-    for (const table of NOTIFICATION_TABLE_CANDIDATES) {
-        const ordered = await portalApi
-            .from(table)
-            .select("*")
-            .order("created_at", { ascending: false })
-            .limit(limit);
-
-        if (!ordered.error && Array.isArray(ordered.data)) {
-            return { table, rows: ordered.data };
-        }
-
-        const plain = await portalApi.from(table).select("*").limit(limit);
-        if (!plain.error && Array.isArray(plain.data)) {
-            return { table, rows: plain.data };
-        }
-    }
-
-    return { table: null, rows: [] };
+    const result = await facultyApi.listNotifications(limit);
+    return { table: "notifications", rows: Array.isArray(result.data) ? result.data : [] };
 }
 
 const styles = `
@@ -246,10 +230,7 @@ export default function Dashboard({ user, onLogout, _devInitialTab }) {
 
             if (!notificationTable) return;
 
-            await portalApi
-                .from(notificationTable)
-                .update({ is_read: true })
-                .eq("id", id);
+            await facultyApi.markNotificationRead(id);
         },
         [notificationTable],
     );
@@ -264,10 +245,7 @@ export default function Dashboard({ user, onLogout, _devInitialTab }) {
 
         if (!notificationTable) return;
 
-        await portalApi
-            .from(notificationTable)
-            .update({ is_read: true })
-            .in("id", unreadIds);
+        await Promise.all(unreadIds.map((id) => facultyApi.markNotificationRead(id)));
     }, [mergedNotifications, notificationTable]);
 
     const renderTab = () => {

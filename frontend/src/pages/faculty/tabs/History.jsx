@@ -1,7 +1,7 @@
 ﻿// SIA/frontend/src/pages/faculty/tabs/History.jsx
 
 import { useCallback, useEffect, useState } from "react";
-import { portalApi } from "../../../lib/portalApi";
+import { facultyApi } from "../../../lib/facultyApi";
 
 // â”€â”€â”€ Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const css = `
@@ -102,25 +102,9 @@ function formatShortDate(value, fallback = "Unknown") {
     });
 }
 
-async function queryRowsFromTableCandidates(tableCandidates, limit = 80) {
-    for (const table of tableCandidates) {
-        const ordered = await portalApi
-            .from(table)
-            .select("*")
-            .order("created_at", { ascending: false })
-            .limit(limit);
-
-        if (!ordered.error && Array.isArray(ordered.data)) {
-            return { table, rows: ordered.data };
-        }
-
-        const plain = await portalApi.from(table).select("*").limit(limit);
-        if (!plain.error && Array.isArray(plain.data)) {
-            return { table, rows: plain.data };
-        }
-    }
-
-    return { table: null, rows: [] };
+async function queryRowsFromTableCandidates() {
+    const result = await facultyApi.listCycles();
+    return { table: "ranking_cycles", rows: Array.isArray(result.data) ? result.data : [] };
 }
 
 function mapStatusToCard(statusText, isOpen) {
@@ -210,10 +194,8 @@ export default function History({ cycles }) {
     const visiblePeriods = showAll ? periodData : periodData.slice(0, 3);
 
     const refreshHistory = useCallback(async () => {
-        const periodResult = await queryRowsFromTableCandidates(CYCLE_TABLE_CANDIDATES, 40);
-        if (periodResult.table) {
-            setResolvedCycleTable(periodResult.table);
-        }
+        const periodResult = await queryRowsFromTableCandidates();
+        setResolvedCycleTable(periodResult.table);
         setPeriodData(toPeriodCards(periodResult.rows));
         setIsLoading(false);
     }, []);
@@ -240,30 +222,11 @@ export default function History({ cycles }) {
     }, [cycles, refreshHistory]);
 
     useEffect(() => {
-        if (!resolvedCycleTable) return;
-
-        const channel = portalApi
-            .channel(`faculty-history-cycles-${resolvedCycleTable}`)
-            .on(
-                "postgres_changes",
-                {
-                    event: "*",
-                    schema: "public",
-                    table: resolvedCycleTable,
-                },
-                () => {
-                    void refreshHistory();
-                },
-            )
-            .subscribe();
-
         if (!cycles) {
             void refreshHistory();
         }
 
-        return () => {
-            portalApi.removeChannel(channel);
-        };
+        return undefined;
     }, [cycles, refreshHistory, resolvedCycleTable]);
 
     return (

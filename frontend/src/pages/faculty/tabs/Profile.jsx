@@ -1,13 +1,13 @@
-// 📄 SIA/frontend/src/pages/faculty/tabs/Profile.jsx
+﻿// ðŸ“„ SIA/frontend/src/pages/faculty/tabs/Profile.jsx
 //
-// ── REVISION NOTES (Midterm Demo Feedback) ──────────────────────────────────
-// • Removed "Current Salary" field — salary must not be disclosed to faculty
-// • Removed "Applying For" field — HR manages target position, not faculty
-// • Removed "Faculty Performance Rating" card from profile —
+// â”€â”€ REVISION NOTES (Midterm Demo Feedback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â€¢ Removed "Current Salary" field â€” salary must not be disclosed to faculty
+// â€¢ Removed "Applying For" field â€” HR manages target position, not faculty
+// â€¢ Removed "Faculty Performance Rating" card from profile â€”
 //     rating is now shown in the Dashboard hero only (see Home.jsx)
-// • Added Data Privacy Provision section at the bottom
-// • Added last-cycle performance rating chip in the hero (read-only)
-// ─────────────────────────────────────────────────────────────────────────────
+// â€¢ Added Data Privacy Provision section at the bottom
+// â€¢ Added last-cycle performance rating chip in the hero (read-only)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../context/AuthContext";
@@ -33,7 +33,7 @@ import {
     AlertCircle,
     Shield,
 } from "lucide-react";
-import { portalApi } from "../../../lib/portalApi";
+import { facultyApi } from "../../../lib/facultyApi";
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
@@ -58,7 +58,7 @@ const styles = `
     --blue-pale: #eaf3fb;
   }
 
-  /* ── HERO ── */
+  /* â”€â”€ HERO â”€â”€ */
   .pf-hero {
     background: linear-gradient(135deg, var(--gc-green-dark) 0%, var(--gc-green) 55%, #22704a 100%);
     border-radius: 16px; padding: 26px 28px; margin-bottom: 20px;
@@ -107,7 +107,7 @@ const styles = `
   .psb-active { font-size:14px; font-weight:700; color:#7debb0; display:flex; align-items:center; gap:5px; justify-content:flex-end; }
   .psb-sub    { font-size:12.5px; color:rgba(255,255,255,0.7); font-weight:500; }
 
-  /* ── CARD ── */
+  /* â”€â”€ CARD â”€â”€ */
   .pf-card {
     background:var(--white); border-radius:14px; border:1px solid var(--border);
     padding:20px; box-shadow:0 2px 6px rgba(0,0,0,0.04); margin-bottom:18px;
@@ -135,11 +135,11 @@ const styles = `
     padding:3px 9px; border-radius:20px;
   }
 
-  /* ── GRIDS ── */
+  /* â”€â”€ GRIDS â”€â”€ */
   .pf-grid-2      { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:0px; }
   .pf-grid-2-asym { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:18px; }
 
-  /* ── FIELDS ── */
+  /* â”€â”€ FIELDS â”€â”€ */
   .pf-fields { display:flex; flex-direction:column; gap:14px; }
   .pf-row    { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:14px; }
   .pf-item   { display:flex; flex-direction:column; gap:4px; }
@@ -157,7 +157,7 @@ const styles = `
     font-size:12px; font-weight:600; padding:3px 10px; border-radius:8px;
   }
 
-  /* ── EDITABLE FIELD ── */
+  /* â”€â”€ EDITABLE FIELD â”€â”€ */
   .pf-editable-field { display:flex; flex-direction:column; gap:4px; }
   .pf-edit-row { display:flex; align-items:center; gap:6px; }
   .pf-edit-input {
@@ -178,7 +178,7 @@ const styles = `
   .pf-edit-btn-cancel { background:var(--off-white); color:var(--text-muted); }
   .pf-edit-btn-cancel:hover { background:var(--border); }
 
-  /* ── EDUCATION LIST (editable) ── */
+  /* â”€â”€ EDUCATION LIST (editable) â”€â”€ */
   .pf-edu-list { display:flex; flex-direction:column; gap:12px; }
   .pf-edu-item {
     display:flex; align-items:flex-start; gap:12px;
@@ -203,7 +203,7 @@ const styles = `
   }
   .pf-edu-add:hover { border-color:var(--gc-green); color:var(--gc-green); }
 
-  /* ── ELIGIBILITY (editable) ── */
+  /* â”€â”€ ELIGIBILITY (editable) â”€â”€ */
   .pf-elig-list { display:flex; flex-direction:column; gap:8px; }
   .pf-elig-item {
     display:flex; align-items:center; gap:10px;
@@ -225,7 +225,7 @@ const styles = `
   }
   .pf-elig-add:hover { border-color:var(--gc-green); color:var(--gc-green); }
 
-  /* ── DATA PRIVACY ── */
+  /* â”€â”€ DATA PRIVACY â”€â”€ */
   .pf-privacy-body {
     font-size:13.5px; color:var(--text-mid); line-height:1.75;
   }
@@ -244,7 +244,7 @@ const styles = `
     color:var(--gc-gold); font-size:11px;
   }
 
-  /* ── NOTICES ── */
+  /* â”€â”€ NOTICES â”€â”€ */
   .pf-notice {
     border-radius:10px; padding:14px 18px; margin-bottom:18px;
     display:flex; align-items:flex-start; gap:10px;
@@ -254,7 +254,7 @@ const styles = `
   .pf-notice-blue    { background:var(--blue-pale); border:1px solid rgba(36,113,163,0.2); color:var(--blue); }
   .pf-notice strong  { color:var(--gc-green-dark); }
 
-    /* ── TOASTS ── */
+    /* â”€â”€ TOASTS â”€â”€ */
     .pf-toast-wrap {
         position: fixed;
         right: 18px;
@@ -278,7 +278,7 @@ const styles = `
     .pf-toast.error { border-color: #f5b7b1; background: #fef2f2; color: #c0392b; }
     .pf-toast.info { border-color: #bcd7ea; background: #eef6fc; color: #1f5f8a; }
 
-  /* ── CHANGE PASSWORD ── */
+  /* â”€â”€ CHANGE PASSWORD â”€â”€ */
   .pf-cp-fields { display:flex; flex-direction:column; gap:14px; margin-bottom:18px; }
   .pf-cp-field  { display:flex; flex-direction:column; gap:6px; }
   .pf-cp-wrap {
@@ -333,7 +333,7 @@ const styles = `
         margin-bottom:14px;
     }
 
-  /* ── RESPONSIVE ── */
+  /* â”€â”€ RESPONSIVE â”€â”€ */
   @media (max-width: 900px) {
     .pf-grid-2      { grid-template-columns: 1fr; }
     .pf-grid-2-asym { grid-template-columns: 1fr; }
@@ -357,7 +357,7 @@ const styles = `
     to   { opacity:1; transform:translateY(0); }
   }
 
-  /* ── MODAL OVERLAY ── */
+  /* â”€â”€ MODAL OVERLAY â”€â”€ */
   .pf-modal-overlay {
     position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex;
     align-items:center; justify-content:center; z-index:1000;
@@ -466,10 +466,10 @@ const styles = `
   }
 `;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // PROFILE EDIT WINDOW FLAG
 // Default fallback used until ranking cycle data is hydrated from the backend.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const DEFAULT_PROFILE_EDIT_OPEN = false;
 const USER_TABLE_CANDIDATES = "users"
     .split(",")
@@ -675,7 +675,7 @@ function parseArrayOrLines(value) {
 
 async function queryPlainRowsWithTableFromCandidates(candidates, limit = 300) {
     for (const table of candidates) {
-        const result = await portalApi.from(table).select("*").limit(limit);
+        const result = await facultyApi.from(table).select("*").limit(limit);
         if (!result.error && Array.isArray(result.data)) {
             return { table, rows: result.data };
         }
@@ -686,7 +686,7 @@ async function queryPlainRowsWithTableFromCandidates(candidates, limit = 300) {
 
 async function queryRowsWithTableFromCandidates(candidates, limit = 300) {
     for (const table of candidates) {
-        const ordered = await portalApi
+        const ordered = await facultyApi
             .from(table)
             .select("*")
             .order("created_at", { ascending: false })
@@ -695,7 +695,7 @@ async function queryRowsWithTableFromCandidates(candidates, limit = 300) {
             return { table, rows: ordered.data };
         }
 
-        const plain = await portalApi.from(table).select("*").limit(limit);
+        const plain = await facultyApi.from(table).select("*").limit(limit);
         if (!plain.error && Array.isArray(plain.data)) {
             return { table, rows: plain.data };
         }
@@ -706,7 +706,7 @@ async function queryRowsWithTableFromCandidates(candidates, limit = 300) {
 
 async function querySingleByCandidates(candidates, column, value) {
     for (const table of candidates) {
-        const result = await portalApi
+        const result = await facultyApi
             .from(table)
             .select("*")
             .eq(column, value)
@@ -722,7 +722,7 @@ async function querySingleByCandidates(candidates, column, value) {
 async function queryDepartmentName(departmentId) {
     if (!departmentId) return "";
 
-    const result = await portalApi
+    const result = await facultyApi
         .from("departments")
         .select("department_name")
         .eq("department_id", departmentId)
@@ -849,7 +849,7 @@ function getStrength(pw) {
     return { label: "Strong", color: "#27ae60", pct: "100%" };
 }
 
-// ── Reusable editable field component ──
+// â”€â”€ Reusable editable field component â”€â”€
 function EditableField({ label, value, onSave, disabled }) {
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(value);
@@ -972,7 +972,7 @@ function NumberField({ label, value, onSave, disabled, min = 0 }) {
     );
 }
 
-// ── Education Modal Component ──
+// â”€â”€ Education Modal Component â”€â”€
 function EducationModal({ isOpen, onClose, onSubmit, isLoading, initialData = null }) {
     const [level, setLevel] = useState("Bachelor's");
     const [degree, setDegree] = useState("");
@@ -1128,7 +1128,7 @@ function EducationModal({ isOpen, onClose, onSubmit, isLoading, initialData = nu
     );
 }
 
-// ── Eligibility Modal Component ──
+// â”€â”€ Eligibility Modal Component â”€â”€
 function EligibilityModal({ isOpen, onClose, onSubmit, isLoading, initialData = null }) {
     const [examName, setExamName] = useState("");
     const [datePassed, setDatePassed] = useState("");
@@ -1163,7 +1163,7 @@ function EligibilityModal({ isOpen, onClose, onSubmit, isLoading, initialData = 
                 year: "numeric",
                 month: "long",
             });
-            textEntry += ` — Passed ${formattedDate}`;
+            textEntry += ` â€” Passed ${formattedDate}`;
         }
 
         onSubmit({
@@ -1546,11 +1546,11 @@ export default function Profile({ user }) {
 
             const userFetchPromise = (async () => {
                 if (userId && isNumericId(userId)) {
-                    const r = await portalApi.from(USER_TABLE).select("*").eq("user_id", parseIntegerOrNull(userId)).maybeSingle();
+                    const r = await facultyApi.from(USER_TABLE).select("*").eq("user_id", parseIntegerOrNull(userId)).maybeSingle();
                     return r.error ? null : r.data;
                 }
                 if (userEmail) {
-                    const r = await portalApi.from(USER_TABLE).select("*").eq("domain_email", userEmail).maybeSingle();
+                    const r = await facultyApi.from(USER_TABLE).select("*").eq("domain_email", userEmail).maybeSingle();
                     return r.error ? null : r.data;
                 }
                 return null;
@@ -1636,7 +1636,7 @@ export default function Profile({ user }) {
                     const row = areaRows[0];
                     const score = getFirstValue(row, ["csv_total_average_rate", "rating", "score"], null);
                     const label = getFirstValue(row, ["rating_label", "rating_text", "performance_level"], "Outstanding");
-                    if (score) setPerformanceChip(`${score} · ${label}`);
+                    if (score) setPerformanceChip(`${score} Â· ${label}`);
                 }
             }
         };
@@ -1676,7 +1676,7 @@ export default function Profile({ user }) {
     useEffect(() => {
         if (!resolvedCycleTable) return;
 
-        const channel = portalApi
+        const channel = facultyApi
             .channel(`faculty-profile-cycles-${resolvedCycleTable}`)
             .on(
                 "postgres_changes",
@@ -1694,11 +1694,11 @@ export default function Profile({ user }) {
         void refreshCycleWindow();
 
         return () => {
-            portalApi.removeChannel(channel);
+            facultyApi.removeChannel(channel);
         };
     }, [refreshCycleWindow, resolvedCycleTable]);
 
-    // ── Handlers ──
+    // â”€â”€ Handlers â”€â”€
 
     const handleFieldSave = async (field, value) => {
         const updatePayload = buildUsersTableUpdate(field, value);
@@ -1710,7 +1710,7 @@ export default function Profile({ user }) {
         const useNumeric = isNumericId(userId);
         const userFilterColumn = useNumeric ? "user_id" : "domain_email";
         const userFilterValue = useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId);
-        const { error } = await portalApi
+        const { error } = await facultyApi
             .from(USER_TABLE)
             .update(updatePayload)
             .eq(userFilterColumn, userFilterValue);
@@ -1738,13 +1738,13 @@ export default function Profile({ user }) {
                           : "edu-bachelor",
                 degree: eduData.degree,
                 school: eduData.yearGraduated
-                    ? `${eduData.institution} · ${eduData.yearGraduated}`
+                    ? `${eduData.institution} Â· ${eduData.yearGraduated}`
                     : eduData.institution,
             };
 
             const nextList = [...eduList, newEntry];
             const useNumeric = isNumericId(userId);
-            const { error } = await portalApi
+            const { error } = await facultyApi
                 .from(USER_TABLE)
                 .update(buildEducationPayload(nextList))
                 .eq(useNumeric ? "user_id" : "domain_email", useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1771,11 +1771,11 @@ export default function Profile({ user }) {
                 level: eduData.level,
                 levelClass: eduData.level.toLowerCase().includes('doctor') ? 'edu-doctorate' : (eduData.level.toLowerCase().includes('master') ? 'edu-masters' : 'edu-bachelor'),
                 degree: eduData.degree,
-                school: eduData.yearGraduated ? `${eduData.institution} · ${eduData.yearGraduated}` : eduData.institution,
+                school: eduData.yearGraduated ? `${eduData.institution} Â· ${eduData.yearGraduated}` : eduData.institution,
             } : e));
 
             const useNumeric = isNumericId(userId);
-            const { error } = await portalApi
+            const { error } = await facultyApi
                 .from(USER_TABLE)
                 .update(buildEducationPayload(updated))
                 .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1799,7 +1799,7 @@ export default function Profile({ user }) {
         if (!window.confirm('Delete this degree entry?')) return;
         const nextList = eduList.filter((_, i) => i !== index);
         const useNumeric = isNumericId(userId);
-        const { error } = await portalApi
+        const { error } = await facultyApi
             .from(USER_TABLE)
             .update(buildEducationPayload(nextList))
             .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1823,7 +1823,7 @@ export default function Profile({ user }) {
 
             const nextList = [...eligList, newEntry];
             const useNumeric = isNumericId(userId);
-            const { error } = await portalApi
+            const { error } = await facultyApi
                 .from(USER_TABLE)
                 .update(buildEligibilityPayload(nextList))
                 .eq(useNumeric ? "user_id" : "domain_email", useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1848,7 +1848,7 @@ export default function Profile({ user }) {
         try {
             const updated = eligList.map((e, i) => (i === index ? { text: eligData.text } : e));
             const useNumeric = isNumericId(userId);
-            const { error } = await portalApi
+            const { error } = await facultyApi
                 .from(USER_TABLE)
                 .update(buildEligibilityPayload(updated))
                 .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1872,7 +1872,7 @@ export default function Profile({ user }) {
         if (!window.confirm('Delete this eligibility entry?')) return;
         const nextList = eligList.filter((_, i) => i !== index);
         const useNumeric = isNumericId(userId);
-        const { error } = await portalApi
+        const { error } = await facultyApi
             .from(USER_TABLE)
             .update(buildEligibilityPayload(nextList))
             .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1893,13 +1893,13 @@ export default function Profile({ user }) {
             const newEntry = {
                 degree: doctoralData.degree,
                 school: doctoralData.yearGraduated
-                    ? `${doctoralData.institution} · ${doctoralData.yearGraduated}`
+                    ? `${doctoralData.institution} Â· ${doctoralData.yearGraduated}`
                     : doctoralData.institution,
             };
 
             const nextList = [...doctoralList, newEntry];
             const useNumeric = isNumericId(userId);
-            const { error } = await portalApi
+            const { error } = await facultyApi
                 .from(USER_TABLE)
                 .update(buildDoctoratePayload(nextList))
                 .eq(useNumeric ? "user_id" : "domain_email", useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1922,9 +1922,9 @@ export default function Profile({ user }) {
     const handleUpdateDoctoral = async (index, doctoralData) => {
         setIsSubmittingDoctoral(true);
         try {
-            const updated = doctoralList.map((d, i) => (i === index ? { degree: doctoralData.degree, school: doctoralData.yearGraduated ? `${doctoralData.institution} · ${doctoralData.yearGraduated}` : doctoralData.institution } : d));
+            const updated = doctoralList.map((d, i) => (i === index ? { degree: doctoralData.degree, school: doctoralData.yearGraduated ? `${doctoralData.institution} Â· ${doctoralData.yearGraduated}` : doctoralData.institution } : d));
             const useNumeric = isNumericId(userId);
-            const { error } = await portalApi
+            const { error } = await facultyApi
                 .from(USER_TABLE)
                 .update(buildDoctoratePayload(updated))
                 .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1948,7 +1948,7 @@ export default function Profile({ user }) {
         if (!window.confirm('Delete this doctorate entry?')) return;
         const nextList = doctoralList.filter((_, i) => i !== index);
         const useNumeric = isNumericId(userId);
-        const { error } = await portalApi
+        const { error } = await facultyApi
             .from(USER_TABLE)
             .update(buildDoctoratePayload(nextList))
             .eq(useNumeric ? 'user_id' : 'domain_email', useNumeric ? parseIntegerOrNull(userId) : (userEmail || userId));
@@ -1981,14 +1981,14 @@ export default function Profile({ user }) {
         try {
             const {
                 data: { user: sessionUser },
-            } = await portalApi.auth.getUser();
+            } = await facultyApi.auth.getUser();
 
             const accountEmail = user?.email || sessionUser?.email;
             if (!accountEmail) {
                 throw new Error("No account email available for verification.");
             }
 
-            const { error: verifyError } = await portalApi.auth.signInWithPassword({
+            const { error: verifyError } = await facultyApi.auth.signInWithPassword({
                 email: accountEmail,
                 password: cpCurrent,
             });
@@ -1997,7 +1997,7 @@ export default function Profile({ user }) {
                 return;
             }
 
-            const { error: updateError } = await portalApi.auth.updateUser({
+            const { error: updateError } = await facultyApi.auth.updateUser({
                 password: cpNew,
             });
             if (updateError) throw updateError;
@@ -2020,7 +2020,7 @@ export default function Profile({ user }) {
         <>
             <style>{styles}</style>
 
-            {/* ── HERO ── */}
+            {/* â”€â”€ HERO â”€â”€ */}
             <div className="pf-hero">
                 {/* Static avatar icon */}
                 <div className="pf-avatar-wrap">
@@ -2087,7 +2087,7 @@ export default function Profile({ user }) {
                 </div>
             )}
 
-            {/* ── ROW 1: Personal Info + Experience ── */}
+            {/* â”€â”€ ROW 1: Personal Info + Experience â”€â”€ */}
             <div className="pf-grid-2">
                 {/* Personal Info */}
                 <div className="pf-card">
@@ -2177,7 +2177,7 @@ export default function Profile({ user }) {
                 </div>
             </div>
 
-            {/* ── ROW 2: Rank & Employment — read only ── */}
+            {/* â”€â”€ ROW 2: Rank & Employment â€” read only â”€â”€ */}
             <div className="pf-card">
                 <div className="pf-card-header">
                     <div className="pf-card-icon">
@@ -2215,9 +2215,9 @@ export default function Profile({ user }) {
                 </div>
             </div>
 
-            {/* ── ROW 3: Education + Eligibility (stacked) ── */}
+            {/* â”€â”€ ROW 3: Education + Eligibility (stacked) â”€â”€ */}
             <div className="pf-grid-2-asym">
-                {/* Educational Attainment — faculty can add entries */}
+                {/* Educational Attainment â€” faculty can add entries */}
                 <div className="pf-card" style={{ marginBottom: 0 }}>
                     <div className="pf-card-header">
                         <div className="pf-card-icon">
@@ -2264,9 +2264,9 @@ export default function Profile({ user }) {
                     </div>
                 </div>
 
-                {/* Eligibility only — Performance Rating removed from profile */}
+                {/* Eligibility only â€” Performance Rating removed from profile */}
                 {/* NOTE: Faculty Performance Rating is displayed in the Dashboard (Home.jsx hero) only.
-                    It was removed from Profile per midterm feedback — rating should not appear here. */}
+                    It was removed from Profile per midterm feedback â€” rating should not appear here. */}
                 <div className="pf-card" style={{ marginBottom: 0 }}>
                     <div className="pf-card-header">
                         <div className="pf-card-icon">
@@ -2348,7 +2348,7 @@ export default function Profile({ user }) {
                 </div>
             </div>
 
-            {/* ── READ-ONLY NOTICE ── */}
+            {/* â”€â”€ READ-ONLY NOTICE â”€â”€ */}
             <div className="pf-notice pf-notice-blue">
                 <Info size={16} style={{ flexShrink: 0, marginTop: 2 }} />
                 <p>
@@ -2358,8 +2358,8 @@ export default function Profile({ user }) {
                 </p>
             </div>
 
-            {/* ── DATA PRIVACY PROVISION ── */}
-            {/* Added per midterm feedback — required by VPAA */}
+            {/* â”€â”€ DATA PRIVACY PROVISION â”€â”€ */}
+            {/* Added per midterm feedback â€” required by VPAA */}
             <div className="pf-card">
                 <div className="pf-card-header">
                     <div className="pf-card-icon">
@@ -2394,9 +2394,9 @@ export default function Profile({ user }) {
                         </li>
                         <li>
                             Your data will only be accessible to authorized
-                            personnel — specifically the{" "}
+                            personnel â€” specifically the{" "}
                             <strong>HR Department</strong> and the{" "}
-                            <strong>Office of the VPAA</strong> — for the
+                            <strong>Office of the VPAA</strong> â€” for the
                             duration of an active evaluation period.
                         </li>
                         <li>
@@ -2426,7 +2426,7 @@ export default function Profile({ user }) {
                 </div>
             </div>
 
-            {/* ── CHANGE PASSWORD ── */}
+            {/* â”€â”€ CHANGE PASSWORD â”€â”€ */}
             <div className="pf-card">
                 <div className="pf-card-header">
                     <div className="pf-card-icon">
@@ -2579,7 +2579,7 @@ export default function Profile({ user }) {
                                                 Passwords match
                                             </>
                                         ) : (
-                                            "✗ Passwords do not match"
+                                            "âœ— Passwords do not match"
                                         )}
                                     </div>
                                 )}
@@ -2650,3 +2650,4 @@ export default function Profile({ user }) {
         </>
     );
 }
+
