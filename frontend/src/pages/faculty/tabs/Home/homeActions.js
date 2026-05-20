@@ -153,6 +153,15 @@ export function useHomeActions({
         }
 
         const submitterId = facultyRecordId ?? (Number.isFinite(Number(userId)) ? Number(userId) : null);
+        console.log("writeSubmissionRow: submission context", {
+            applicationId: appId,
+            cycleId: activePeriodId,
+            frontendAreaId,
+            areaId,
+            partId: part.id,
+            userId: submitterId,
+            storagePath,
+        });
         const base = {
             part_id: part.id,
             area_id: areaId,
@@ -190,7 +199,7 @@ export function useHomeActions({
                     && String(rowAppId) === String(appId)
                     && (!activePeriodId || String(getFirstValue(row, ["cycle_id", "ranking_cycle_id", "cycleId"], "")) === String(activePeriodId))
                     && String(rowAreaId) === String(areaId);
-            }) || existingRows[0] || null;
+            }) || null;
 
             if (existing) {
                 const submissionId = getFirstValue(existing, ["submission_id", "id"], null);
@@ -232,7 +241,23 @@ export function useHomeActions({
             });
 
             const verifiedRows = Array.isArray(verification.data) ? verification.data : [];
-            const verified = verifiedRows.find((row) => String(getFirstValue(row, ["submission_id", "id"], "")) === String(savedSubmissionId)) || null;
+            const verified = verifiedRows.find((row) => {
+                const rowSubmissionId = getFirstValue(row, ["submission_id", "id"], null);
+                const rowAreaId = getFirstValue(row, ["area_id", "areaId", "area"]);
+                const rowPartId = getFirstValue(row, ["part_id", "partId"]);
+                const rowAppId = getFirstValue(row, ["application_id", "applicationId", "app_id"]);
+                const rowUserId = getFirstValue(row, ["user_id", "userId", "faculty_id"]);
+                const rowCycleId = getFirstValue(row, ["cycle_id", "ranking_cycle_id", "cycleId"]);
+
+                const matchesSavedId = String(rowSubmissionId || "") === String(savedSubmissionId);
+                const matchesContext = String(rowAppId || "") === String(appId)
+                    && String(rowPartId || "") === String(part.id)
+                    && String(rowAreaId || "") === String(areaId)
+                    && String(rowUserId || "") === String(submitterId || "")
+                    && (!activePeriodId || String(rowCycleId || "") === String(activePeriodId));
+
+                return matchesSavedId || matchesContext;
+            }) || null;
 
             if (verification.error || !verified) {
                 const verificationError = verification.error || new Error("Submission row was not found after save verification.");
@@ -276,6 +301,7 @@ export function useHomeActions({
             try {
                 const existingApplications = await facultyApi.listApplications({
                     faculty_id: resolvedFacultyId,
+                    cycle_id: activePeriodId || undefined,
                     limit: 1,
                 });
 
@@ -521,6 +547,20 @@ export function useHomeActions({
     };
 
     const handleReplaceFile = (part) => {
+        if (part.status === "submitted") {
+            setPartAction(part.id, "resubmit");
+            try {
+                patchPartLocal(part.id, (prev) => ({
+                    ...prev,
+                    status: "draft",
+                }));
+                pushToast("success", "Submission moved back to draft state. You can resubmit it now.");
+            } finally {
+                setPartAction(part.id, null);
+            }
+            return;
+        }
+
         pickSingleFile(async (file) => {
             if (!file) return;
             if (!isPdfFile(file)) {
@@ -587,8 +627,23 @@ export function useHomeActions({
                 return;
             }
 
-                const result = await facultyApi.deleteSubmission(part.submissionId);
-                if (result.error) {
+            if (!part.submissionId) {
+                patchPartLocal(part.id, (prev) => ({
+                    ...prev,
+                    status: "empty",
+                    file: null,
+                    fileObject: null,
+                    date: null,
+                    fileUrl: null,
+                    storagePath: null,
+                    submissionId: null,
+                }));
+                pushToast("success", "Draft removed.");
+                return;
+            }
+
+            const result = await facultyApi.deleteSubmission(part.submissionId);
+            if (result.error) {
                 pushToast("error", "Unable to remove draft right now.");
                 return;
             }
@@ -622,6 +677,15 @@ export function useHomeActions({
         setPartAction(part.id, "submit");
         try {
             const nowIso = new Date().toISOString();
+            console.debug("handleSubmitPart: submit requested", {
+                partId: part.id,
+                status: part.status,
+                hasAttachedDraft,
+                isLocalDraft,
+                isRemoteDraft,
+                applicationId: applicationInfo.id,
+                cycleId: await resolveActivePeriodId(),
+            });
 
             if (isLocalDraft) {
                 const uploadResult = await uploadFileForPart(part, part.fileObject, "submitted");
@@ -668,7 +732,7 @@ export function useHomeActions({
             pushToast("error", e?.message || "Unable to submit this part right now.");
             patchPartLocal(part.id, (prev) => ({
                 ...prev,
-                status: prev.status === "submitted" ? prev.status : "failed",
+                    status: "failed",
             }));
         } finally {
             setPartAction(part.id, null);

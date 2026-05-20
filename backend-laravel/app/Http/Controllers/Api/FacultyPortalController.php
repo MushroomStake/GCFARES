@@ -294,9 +294,10 @@ class FacultyPortalController extends Controller
 
     public function createSubmission(Request $request)
     {
+        $user = $this->requireUser($request);
         $validated = $request->validate([
             'application_id' => ['required', 'integer', Rule::exists('applications', 'application_id')],
-            'area_id' => ['required', 'integer', Rule::exists('areas', 'area_id')],
+            'area_id' => ['required', 'integer'],
             'file_path' => ['nullable', 'string', 'max:512'],
             'csv_total_average_rate' => ['nullable', 'numeric'],
             'hr_points' => ['nullable', 'numeric'],
@@ -310,19 +311,69 @@ class FacultyPortalController extends Controller
             return response()->json(['error' => 'Invalid area_id supplied for submission.'], 422);
         }
 
+        if (!empty($validated['user_id']) && (int) $validated['user_id'] !== (int) $user->user_id) {
+            return response()->json(['error' => 'Faculty mismatch.'], 403);
+        }
+
+        $userId = (int) ($validated['user_id'] ?? $user->user_id);
+
+        $criteria = [
+            'application_id' => (int) $validated['application_id'],
+            'area_id' => $areaId,
+            'user_id' => $userId,
+        ];
+
+        $cycleId = $validated['cycle_id'] ?? null;
+        if ($cycleId === null) {
+            $criteria['cycle_id'] = null;
+        } else {
+            $criteria['cycle_id'] = (int) $cycleId;
+        }
+
+        $partId = $validated['part_id'] ?? null;
+        if ($partId === null || $partId === '') {
+            $criteria['part_id'] = null;
+        } else {
+            $criteria['part_id'] = $partId;
+        }
+
         $payload = [
             'application_id' => (int) $validated['application_id'],
             'area_id' => $areaId,
             'file_path' => $validated['file_path'] ?? null,
             'csv_total_average_rate' => $validated['csv_total_average_rate'] ?? null,
             'hr_points' => $validated['hr_points'] ?? 0,
-            'user_id' => $validated['user_id'] ?? null,
-            'cycle_id' => $validated['cycle_id'] ?? null,
-            'part_id' => $validated['part_id'] ?? null,
+            'user_id' => $userId,
+            'cycle_id' => $cycleId,
+            'part_id' => $partId,
         ];
 
-        $id = DB::table('area_submissions')->insertGetId($payload, 'submission_id');
-        $row = DB::table('area_submissions')->where('submission_id', $id)->first();
+        $row = DB::transaction(function () use ($criteria, $payload) {
+            DB::table('area_submissions')->updateOrInsert($criteria, $payload);
+
+            $query = DB::table('area_submissions')
+                ->where('application_id', $criteria['application_id'])
+                ->where('area_id', $criteria['area_id'])
+                ->where('user_id', $criteria['user_id']);
+
+            if ($criteria['cycle_id'] === null) {
+                $query->whereNull('cycle_id');
+            } else {
+                $query->where('cycle_id', $criteria['cycle_id']);
+            }
+
+            if ($criteria['part_id'] === null) {
+                $query->whereNull('part_id');
+            } else {
+                $query->where('part_id', $criteria['part_id']);
+            }
+
+            return $query->orderByDesc('submission_id')->first();
+        });
+
+        if (!$row) {
+            return response()->json(['error' => 'Submission was saved but could not be verified.'], 500);
+        }
 
         return response()->json(['submission' => $row]);
     }

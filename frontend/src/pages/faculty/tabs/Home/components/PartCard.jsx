@@ -54,7 +54,10 @@ export default function PartCard({
     }
 
     const hasAttachedDraft = Boolean(part.fileObject || part.storagePath);
+    const isSubmitted = part.status === "submitted";
     const isDraft = part.status === "draft" || part.status === "draft-local" || part.status === "failed" || hasAttachedDraft;
+    const isEditableDraft = part.status === "draft" || part.status === "draft-local" || part.status === "failed";
+    const hasVisibleFile = Boolean(part.file || hasAttachedDraft || isSubmitted);
     const sc = part.auto
         ? "auto"
         : part.status === "submitted"
@@ -128,10 +131,10 @@ export default function PartCard({
                                 <Download size={12} /> Download Template
                             </button>
 
-                            {(part.status === "submitted" || isDraft) && (
+                            {hasVisibleFile && (
                                 <div className="hm-file-zone">
                                     <FileText size={12} />
-                                    <span className="hm-file-name">{part.file}</span>
+                                    <span className="hm-file-name">{part.file || "Attached draft"}</span>
                                     <button
                                         type="button"
                                         className="hm-fab hm-fab-view"
@@ -199,7 +202,7 @@ export default function PartCard({
                                 <Download size={12} /> Download Template
                             </button>
 
-                            {part.status === "submitted" || isDraft ? (
+                            {hasVisibleFile ? (
                                 <>
                                     <div className="hm-file-zone">
                                         <FileText size={12} />
@@ -222,7 +225,7 @@ export default function PartCard({
                                         >
                                             <Download size={11} />
                                         </button>
-                                        {isDraft && (
+                                        {isEditableDraft && hasVisibleFile && (
                                             <button
                                                 type="button"
                                                 className="hm-fab hm-fab-del"
@@ -234,14 +237,14 @@ export default function PartCard({
                                             </button>
                                         )}
                                     </div>
-                                    {part.status === "submitted" && (
+                                    {isSubmitted && (
                                         <button
                                             type="button"
                                             className="hm-btn-replace"
                                             onClick={() => onReplaceFile(part)}
                                             disabled={isBusy}
                                         >
-                                            <RefreshCw size={11} /> Replace
+                                            <RefreshCw size={11} /> Resubmit
                                         </button>
                                     )}
                                 </>
@@ -256,7 +259,7 @@ export default function PartCard({
                                 </button>
                             )}
 
-                            {part.status === "submitted" ? (
+                            {isSubmitted ? (
                                 <button type="button" className="hm-btn-submit" disabled>
                                     <CheckCircle size={12} /> Submitted
                                 </button>
@@ -276,7 +279,7 @@ export default function PartCard({
                                     onClick={() => onSubmitPart(part)}
                                     disabled={isBusy}
                                 >
-                                    <Send size={12} /> Submit Part
+                                    <Send size={12} /> {part.submissionId ? "Resubmit Part" : "Submit Part"}
                                 </button>
                             ) : (
                                 <button

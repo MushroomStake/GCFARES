@@ -226,6 +226,8 @@ export function normalizeSubmissionStatus(row) {
         "submitted_at",
         "submittedAt",
         "date_submitted",
+        "uploaded_at",
+        "uploadedAt",
     ]);
     if (submittedAt) return "submitted";
 
@@ -236,7 +238,7 @@ export function normalizeSubmissionStatus(row) {
         "original_file_name",
     ]);
     const fileUrl = getFirstValue(row, ["file_url", "url", "path"]);
-    if (fileName || fileUrl) return "draft";
+    if (fileName || fileUrl || getFirstValue(row, ["file_path", "storage_path", "object_path"], null)) return "submitted";
 
     return "empty";
 }

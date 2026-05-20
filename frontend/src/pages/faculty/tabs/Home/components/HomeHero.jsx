@@ -1,6 +1,7 @@
 import { Building2, Lock, School, TrendingUp } from "lucide-react";
 
 export default function HomeHero({ periodInfo, submissionOpen, profileInfo, userDisplayName }) {
+    const isParticipating = String(profileInfo.status || "").trim().toLowerCase() === "ranking";
     return (
         <>
             <div className="hm-hero">
@@ -48,9 +49,9 @@ export default function HomeHero({ periodInfo, submissionOpen, profileInfo, user
                             <div className="hm-deadline-copy">
                                 <div className="hm-deadline-label">Submissions</div>
                                 <div className="hm-deadline-date" style={{ color: "rgba(255,255,255,0.6)" }}>Closed</div>
-                                {profileInfo.status !== "ranking" && profileInfo.status !== "unknown" && (
+                                {!isParticipating && profileInfo.status !== "unknown" && (
                                     <div className="hm-deadline-note" style={{ marginTop: 6, fontSize: 12, opacity: 0.86 }}>
-                                        Your account is not currently marked as For Ranking.
+                                        Your account is inactive, so you are not participating in the current cycle.
                                     </div>
                                 )}
                             </div>

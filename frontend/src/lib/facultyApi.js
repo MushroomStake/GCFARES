@@ -115,6 +115,18 @@ function createQueryBuilder(table) {
 }
 
 async function executeDatabaseOperation(payload) {
+  const table = String(payload?.table || "").trim();
+  const operation = String(payload?.operation || "select").toLowerCase();
+  const isMutation = operation === "insert" || operation === "update" || operation === "delete";
+
+  if (table === "area_submissions" && isMutation) {
+    const error = new Error(
+      "Legacy mutation blocked: use facultyApi.createSubmission/updateSubmission/deleteSubmission for area_submissions.",
+    );
+    console.error("executeDatabaseOperation blocked", { table, operation, payload, error });
+    return createResult(null, error);
+  }
+
   try {
     const response = await apiRequest("/database/query", {
       method: "POST",

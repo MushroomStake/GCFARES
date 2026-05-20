@@ -89,8 +89,8 @@ export default function Home({ user }) {
     const [openAreaId, setOpenAreaId] = useState(null);
     const [areasData, setAreasData] = useState(DEFAULT_AREAS_DATA);
     const [databaseAreas, setDatabaseAreas] = useState([]);
-    const [submissionOpen] = useState(true);
-    const [periodInfo] = useState({
+    const [submissionOpen, setSubmissionOpen] = useState(false);
+    const [periodInfo, setPeriodInfo] = useState({
         id: null,
         label: DEFAULT_PERIOD_LABEL,
         deadlineLabel: DEFAULT_DEADLINE_LABEL,
@@ -133,8 +133,26 @@ export default function Home({ user }) {
             const resolvedFacultyId = facultyRecordId ?? (Number.isFinite(Number(userId)) ? Number(userId) : null);
             if (resolvedFacultyId === null) return;
 
+            let activeCycleId = null;
+            try {
+                const cycleResult = await facultyApi.listCycles();
+                const cycleRows = Array.isArray(cycleResult.data)
+                    ? cycleResult.data
+                    : Array.isArray(cycleResult.data?.data)
+                        ? cycleResult.data.data
+                        : [];
+                const activeCycleRow = cycleRows.find((cycle) => {
+                    const status = String(cycle?.status || cycle?.state || cycle?.cycle_status || "").toLowerCase();
+                    return status === "open" || status === "active" || cycle?.profile_edit_open === 1 || cycle?.profile_edit_open === true;
+                }) || cycleRows[0] || null;
+                activeCycleId = getFirstValue(activeCycleRow, ["cycle_id", "id"], null);
+            } catch {
+                activeCycleId = null;
+            }
+
             const appResult = await facultyApi.listApplications({
                 faculty_id: resolvedFacultyId,
+                cycle_id: activeCycleId || undefined,
                 limit: 1,
             });
 
@@ -173,7 +191,10 @@ export default function Home({ user }) {
                     targetRank,
                 }));
 
-                const submissionResult = await facultyApi.listSubmissions({ application_id: appId });
+                const submissionResult = await facultyApi.listSubmissions({
+                    application_id: appId,
+                    cycle_id: activeCycleId || undefined,
+                });
 
                 const submissionRows = Array.isArray(submissionResult.data)
                     ? submissionResult.data
@@ -181,11 +202,22 @@ export default function Home({ user }) {
                         ? submissionResult.data.data
                         : [];
 
-                if (active && !submissionResult.error && submissionRows.length > 0) {
-                    setAreasData((prev) => applySubmissionRowsToAreas(prev, submissionRows));
+                if (active && !submissionResult.error) {
+                    setAreasData(() => applySubmissionRowsToAreas(DEFAULT_AREAS_DATA, submissionRows));
                 }
             } else {
-                const submissionResult = await facultyApi.listSubmissions({ faculty_id: resolvedFacultyId });
+                setApplicationInfo((prev) => ({
+                    ...prev,
+                    id: null,
+                    status: "Draft",
+                }));
+
+                const submissionResult = activeCycleId
+                    ? await facultyApi.listSubmissions({
+                        faculty_id: resolvedFacultyId,
+                        cycle_id: activeCycleId,
+                    })
+                    : await facultyApi.listSubmissions({ faculty_id: resolvedFacultyId });
 
                 const submissionRows = Array.isArray(submissionResult.data)
                     ? submissionResult.data
@@ -193,17 +225,8 @@ export default function Home({ user }) {
                         ? submissionResult.data.data
                         : [];
 
-                if (active && !submissionResult.error && submissionRows.length > 0) {
-                    const appId = getFirstValue(submissionRows[0], ["application_id", "id"], null);
-                    if (appId) {
-                        setApplicationInfo((prev) => ({
-                            ...prev,
-                            id: appId,
-                            status: "Draft",
-                        }));
-                    }
-
-                    setAreasData((prev) => applySubmissionRowsToAreas(prev, submissionRows));
+                if (active && !submissionResult.error) {
+                    setAreasData(() => applySubmissionRowsToAreas(DEFAULT_AREAS_DATA, submissionRows));
                 }
             }
         };
@@ -214,6 +237,82 @@ export default function Home({ user }) {
             active = false;
         };
     }, [facultyRecordId, userId]);
+
+    useEffect(() => {
+        let active = true;
+
+        const formatCycleDeadline = (value) => {
+            if (!value) return DEFAULT_DEADLINE_LABEL;
+            const formatted = formatDateTime(value);
+            return formatted || DEFAULT_DEADLINE_LABEL;
+        };
+
+        const computeDaysLeft = (value) => {
+            if (!value) return 0;
+            const deadline = new Date(value);
+            if (Number.isNaN(deadline.getTime())) return 0;
+            return Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / 86400000));
+        };
+
+        const loadPeriodInfo = async () => {
+            try {
+                const result = await facultyApi.listCycles();
+                if (!active) return;
+
+                const cycles = Array.isArray(result.data)
+                    ? result.data
+                    : Array.isArray(result.data?.data)
+                        ? result.data.data
+                        : [];
+
+                const selectedCycle = cycles.find((cycle) => {
+                    const status = String(cycle?.status || cycle?.state || cycle?.cycle_status || "").trim().toLowerCase();
+                    return status === "open" || status === "active";
+                }) || cycles.find((cycle) => String(cycle?.status || cycle?.state || cycle?.cycle_status || "").trim().toLowerCase() === "submissions_closed")
+                    || cycles[0]
+                    || null;
+
+                if (!selectedCycle) {
+                    setSubmissionOpen(false);
+                    setPeriodInfo({
+                        id: null,
+                        label: DEFAULT_PERIOD_LABEL,
+                        deadlineLabel: DEFAULT_DEADLINE_LABEL,
+                        daysLeft: 0,
+                    });
+                    return;
+                }
+
+                const status = String(selectedCycle.status || selectedCycle.state || selectedCycle.cycle_status || "").trim().toLowerCase();
+                const deadlineValue = selectedCycle.deadline || selectedCycle.profile_edit_deadline || null;
+                const profileStatus = String(profileInfo.status || user?.status || "unknown").trim().toLowerCase();
+                const isParticipating = profileStatus === "ranking";
+
+                setSubmissionOpen((status === "open" || status === "active") && isParticipating);
+                setPeriodInfo({
+                    id: getFirstValue(selectedCycle, ["cycle_id", "id"], null),
+                    label: selectedCycle.title || DEFAULT_PERIOD_LABEL,
+                    deadlineLabel: formatCycleDeadline(deadlineValue),
+                    daysLeft: computeDaysLeft(deadlineValue),
+                });
+            } catch {
+                if (!active) return;
+                setSubmissionOpen(false);
+                setPeriodInfo({
+                    id: null,
+                    label: DEFAULT_PERIOD_LABEL,
+                    deadlineLabel: DEFAULT_DEADLINE_LABEL,
+                    daysLeft: 0,
+                });
+            }
+        };
+
+        void loadPeriodInfo();
+
+        return () => {
+            active = false;
+        };
+    }, [profileInfo.status, user?.status]);
 
     useEffect(() => {
         let active = true;
@@ -272,11 +371,27 @@ export default function Home({ user }) {
         });
     };
 
+    const updatePartTree = (parts, partId, updater) =>
+        parts.map((part) => {
+            if (part.id === partId) {
+                return updater(part);
+            }
+
+            if (part.isGroup && Array.isArray(part.subparts)) {
+                return {
+                    ...part,
+                    subparts: updatePartTree(part.subparts, partId, updater),
+                };
+            }
+
+            return part;
+        });
+
     const patchPartLocal = (partId, updater) => {
         setAreasData((prev) =>
             prev.map((area) => ({
                 ...area,
-                parts: area.parts.map((part) => (part.id === partId ? updater(part) : part)),
+                parts: updatePartTree(area.parts, partId, updater),
             })),
         );
     };

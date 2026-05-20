@@ -75,6 +75,8 @@ class DatabaseController extends Controller
 
     private function insertRows(string $table, array $payload)
     {
+        $this->guardLegacySubmissionMutation($table, 'insert');
+
         $values = $payload['values'] ?? null;
         if ($values === null) {
             return response()->json(['error' => 'Missing values for insert.'], 422);
@@ -123,6 +125,8 @@ class DatabaseController extends Controller
 
     private function updateRows(string $table, array $payload)
     {
+        $this->guardLegacySubmissionMutation($table, 'update');
+
         $values = is_array($payload['values'] ?? null) ? $payload['values'] : [];
         if ($values === []) {
             return response()->json(['error' => 'Missing values for update.'], 422);
@@ -140,6 +144,8 @@ class DatabaseController extends Controller
 
     private function deleteRows(string $table, array $payload)
     {
+        $this->guardLegacySubmissionMutation($table, 'delete');
+
         $query = $this->buildBaseQuery($table, $payload, 'delete');
         if ($query === null) {
             return response()->json(['error' => 'Invalid or unsupported column.'], 422);
@@ -148,6 +154,20 @@ class DatabaseController extends Controller
         $deleted = $query->delete();
 
         return response()->json(['data' => ['deleted' => $deleted]]);
+    }
+
+    private function guardLegacySubmissionMutation(string $table, string $operation): void
+    {
+        if ($table !== 'area_submissions') {
+            return;
+        }
+
+        throw new HttpResponseException(response()->json([
+            'error' => sprintf(
+                'Legacy %s on area_submissions via /api/database/query is disabled. Use /api/faculty/submissions endpoints.',
+                $operation,
+            ),
+        ], 422));
     }
 
     private function buildBaseQuery(string $table, array $payload, string $mode = 'select')
