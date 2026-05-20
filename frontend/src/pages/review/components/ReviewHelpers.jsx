@@ -163,6 +163,48 @@ function getPublicFileUrl(storagePath) {
   return `${origin}/storage/${publicPath.split('/').map((segment) => encodeURIComponent(segment)).join('/')}`;
 }
 
+function resolvePreviewFileUrl(fileUrl) {
+  if (!fileUrl) return null;
+  return getPublicFileUrl(fileUrl) || fileUrl;
+}
+
+function getApiOrigin() {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001/api';
+  return apiBaseUrl.replace(/\/api\/?$/, '');
+}
+
+function extractStoragePath(fileUrl) {
+  if (!fileUrl) return null;
+
+  const raw = String(fileUrl);
+  try {
+    const parsed = new URL(raw);
+    const index = parsed.pathname.indexOf('/storage/');
+    if (index >= 0) {
+      return decodeURIComponent(parsed.pathname.slice(index + '/storage/'.length).replace(/^\/+/, ''));
+    }
+  } catch (error) {
+    // Not an absolute URL; fall through.
+  }
+
+  const storageIndex = raw.indexOf('/storage/');
+  if (storageIndex >= 0) {
+    return decodeURIComponent(raw.slice(storageIndex + '/storage/'.length).replace(/^\/+/, ''));
+  }
+
+  if (raw.startsWith('documents/')) {
+    return raw.replace(/^\/+/, '');
+  }
+
+  return raw.replace(/^\/+/, '');
+}
+
+function buildAuthenticatedFileUrl(fileUrl) {
+  const storagePath = extractStoragePath(fileUrl);
+  if (!storagePath) return null;
+  return `${getApiOrigin()}/api/review/storage-file?path=${encodeURIComponent(storagePath)}&bucket=public`;
+}
+
 const CRITERIA_DEFINITIONS = {
   1: [
     { label: 'A', title: 'Associate Courses/Program (2 years)', points: 25.0, maxPoints: 25.0, weight: '30%' },
@@ -263,15 +305,74 @@ export function FacultyInfoCard({ facultyData, applicationData, onEditFinalScore
 export function DocumentViewer({ fileUrl, fileName, onClose }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewError, setPreviewError] = useState('');
+
+  const resolvedFileUrl = resolvePreviewFileUrl(fileUrl);
+  const isPDF = resolvedFileUrl ? (resolvedFileUrl.toLowerCase().endsWith('.pdf') || resolvedFileUrl.includes('application/pdf')) : false;
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = null;
+
+    setPreviewUrl(null);
+    setPreviewError('');
+
+    const loadPreview = async () => {
+      const endpoint = buildAuthenticatedFileUrl(resolvedFileUrl);
+      const token = (() => {
+        try {
+          return localStorage.getItem('api_token');
+        } catch {
+          return null;
+        }
+      })();
+
+      if (!endpoint) {
+        setPreviewError('Unable to resolve file path.');
+        return;
+      }
+
+      try {
+        const headers = { Accept: 'application/octet-stream' };
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+
+        const response = await fetch(endpoint, { headers });
+        if (!response.ok) {
+          throw new Error(`Failed to load file (${response.status})`);
+        }
+
+        const blob = await response.blob();
+        objectUrl = window.URL.createObjectURL(blob);
+
+        if (!cancelled) {
+          setPreviewUrl(objectUrl);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPreviewError(error?.message || 'Failed to load file preview.');
+        }
+      }
+    };
+
+    loadPreview();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        window.URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [resolvedFileUrl]);
 
   if (!fileUrl) return null;
-
-  const isPDF = fileUrl.toLowerCase().endsWith('.pdf') || fileUrl.includes('application/pdf');
 
   const handleDownloadPDF = async () => {
     try {
       setIsDownloading(true);
-      const response = await fetch(fileUrl);
+      const response = await fetch(previewUrl || resolvedFileUrl);
       if (!response.ok) throw new Error('Network response was not ok');
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -284,7 +385,7 @@ export function DocumentViewer({ fileUrl, fileName, onClose }) {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.warn('Blob download failed (likely CORS), falling back to open in new tab:', error);
-      window.open(fileUrl, '_blank');
+      window.open(previewUrl || resolvedFileUrl, '_blank');
     } finally {
       setIsDownloading(false);
     }
@@ -300,7 +401,7 @@ export function DocumentViewer({ fileUrl, fileName, onClose }) {
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <a
-              href={fileUrl}
+              href={previewUrl || resolvedFileUrl}
               target="_blank"
               rel="noopener noreferrer"
               title="Open in new tab"
@@ -356,15 +457,25 @@ export function DocumentViewer({ fileUrl, fileName, onClose }) {
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', background: '#f3f4f6' }}>
-          {isPDF ? (
-            <iframe src={`${fileUrl}#toolbar=1&navpanes=0&scrollbar=1`} style={{ width: '100%', height: '100%', border: 'none' }} title={fileName} />
-          ) : (
+          {previewError ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', color: '#dc2626', padding: '24px', textAlign: 'center' }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>Preview unavailable</p>
+              <p style={{ margin: '8px 0 0', fontSize: '12px' }}>{previewError}</p>
+            </div>
+          ) : previewUrl && isPDF ? (
+            <iframe src={`${previewUrl}#toolbar=1&navpanes=0&scrollbar=1`} style={{ width: '100%', height: '100%', border: 'none' }} title={fileName} />
+          ) : previewUrl && !isPDF ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', color: '#6b7280' }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ width: '48px', height: '48px', marginBottom: '12px' }}>
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
               </svg>
               <p style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '500' }}>Document Preview</p>
               <p style={{ margin: 0, fontSize: '12px' }}>Use the buttons above to view or download</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', color: '#6b7280' }}>
+              <p style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '500' }}>Loading preview...</p>
+              <p style={{ margin: 0, fontSize: '12px' }}>Fetching the file securely from the review server</p>
             </div>
           )}
         </div>
@@ -392,14 +503,32 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
       if (!areaRubric) return [];
       const items = [];
 
-      // Flatten top-level subareas and children
-      areaRubric.subAreas.forEach((sa) => {
-        if (sa.children && sa.children.length > 0) {
-          sa.children.forEach((c) => items.push({ criterion_key: c.label, label: c.label, title: c.title || c.label, maxPoints: Number(c.maxPoints ?? 0), score: 0 }));
-        } else {
-          items.push({ criterion_key: sa.label, label: sa.label, title: sa.title || sa.label, maxPoints: Number(sa.maxPoints ?? 0), score: 0 });
+      const pushRubricNode = (node, parentKey = null) => {
+        if (!node) return;
+
+        const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+        const rawMaxPoints = node.maxPoints;
+        const hasDefinedMax = rawMaxPoints !== undefined && rawMaxPoints !== null && rawMaxPoints !== '';
+        const maxPoints = hasDefinedMax ? Number(rawMaxPoints) : null;
+
+        items.push({
+          criterion_key: node.label || node.id,
+          label: node.label || node.id,
+          title: node.title || node.label || node.id,
+          maxPoints: hasChildren ? null : maxPoints,
+          score: 0,
+          displayOnly: hasChildren,
+          parentOnly: hasChildren,
+          parent_key: parentKey,
+        });
+
+        if (hasChildren) {
+          node.children.forEach((child) => pushRubricNode(child, node.label || node.id));
         }
-      });
+      };
+
+      // Recursively flatten every rubric node so no area criteria are skipped.
+      areaRubric.subAreas.forEach((sa) => pushRubricNode(sa));
 
       return items;
     } catch (err) {
@@ -423,67 +552,69 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
       }
 
       const areaRubric = RANKING_RUBRICS.find((r) => Number(r.areaId) === Number(resolvedAreaId));
-      if (!areaRubric) return 0;
+      if (!areaRubric) return undefined; // rubric not found for this area
       const normalize = (str) => String(str || '').trim().toLowerCase().replace(/[^\w]/g, '');
-      // Prefer explicit partId passed from submission, but if missing try to infer
-      // from the stored criterionKey. Some backend fallbacks write keys like
-      // "submission:placeholder-8-3" or "part:3" or "file:basename". Try to
-      // extract a usable part label (often the last numeric segment) so rubric
-      // lookup can succeed.
+
       let partLabel = null;
       if (partId) {
         partLabel = String(partId).trim().split(/[-_\s\/]+/).pop();
       } else if (criterionKey) {
         const ck = String(criterionKey).trim();
-        // Match patterns like submission:placeholder-8-3 -> capture final segment '3'
         let m = ck.match(/(?:submission|file|part):(?:.*?-)?(\d+)$/i);
         if (m && m[1]) {
           partLabel = m[1];
         } else {
-          // Fallback: take last token after non-word separators
           const tokens = ck.split(/[-_:\s\/]+/).filter(Boolean);
           if (tokens.length) partLabel = tokens[tokens.length - 1];
         }
       }
       const normalizedKey = normalize(criterionKey);
 
+      // return undefined => not found in rubric
+      // return null => found in rubric but maxPoints explicitly missing/null
+      // return number => explicit numeric maxPoints
       const findInList = (list) => {
         for (const item of list) {
           if (!item) continue;
-          if (String(item.label) === String(criterionKey) || String(item.id).endsWith(`_${criterionKey}`) || String(item.id).includes(`_${criterionKey}_`)) {
-            return Number(item.maxPoints ?? 0);
+          const itemLabel = String(item.label || '').trim();
+          const itemId = String(item.id || '').trim();
+
+          if (itemLabel === String(criterionKey) || itemId.endsWith(`_${criterionKey}`) || itemId.includes(`_${criterionKey}_`)) {
+            return item.hasOwnProperty('maxPoints') ? (item.maxPoints == null ? null : Number(item.maxPoints)) : undefined;
           }
-          if (normalize(item.label) === normalizedKey || normalize(item.title) === normalizedKey || normalize(item.id) === normalizedKey) {
-            return Number(item.maxPoints ?? 0);
+
+          if (normalize(item.label) === normalizedKey || normalize(item.title) === normalizedKey || normalize(itemId) === normalizedKey) {
+            return item.hasOwnProperty('maxPoints') ? (item.maxPoints == null ? null : Number(item.maxPoints)) : undefined;
           }
+
           if (item.children && item.children.length) {
             const res = findInList(item.children);
-            if (res) return res;
+            if (res !== undefined) return res;
           }
         }
-        return 0;
+        return undefined;
       };
 
       if (partLabel) {
         const subArea = areaRubric.subAreas.find((sa) => sa.label === partLabel || String(sa.id).endsWith(`_${partLabel}`) || String(sa.id).includes(`_${partLabel}_`));
         if (subArea) {
           const v = findInList([subArea]);
-          if (v) return v;
+          if (v !== undefined) return v;
         }
       }
 
       const result = findInList(areaRubric.subAreas);
-      if (result) return result;
+      if (result !== undefined) return result;
 
       for (const area of RANKING_RUBRICS) {
         const crossSearchResult = findInList(area.subAreas);
-        if (crossSearchResult) return crossSearchResult;
+        if (crossSearchResult !== undefined) return crossSearchResult;
       }
 
-      return 0;
+      return undefined;
     } catch (err) {
       console.error('rubric lookup error', err);
-      return 0;
+      return undefined;
     }
   };
 
@@ -526,14 +657,28 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
       }
     }
 
-    // Finalize each criterion by resolving rubric max if still missing
+    // Finalize each criterion by resolving rubric max if still missing.
+    // Preserve rubric: undefined = no rubric entry, null = rubric exists but no max, number = explicit max.
     return base.map((criterion) => {
       const key = criterion.criterion_key || criterion.label;
-      const providedMax = Number(criterion.maxPoints ?? criterion.max_points ?? criterion.max ?? 0);
+      const providedRaw = criterion.maxPoints ?? criterion.max_points ?? criterion.max;
+      const providedMax = providedRaw != null ? Number(providedRaw) : undefined;
       const rubricMax = getRubricMaxForCriterion(area?.area_id || 1, key, submission?.part_id, area?.area_name || area?.label);
-      const finalMax = providedMax > 0 ? providedMax : (rubricMax > 0 ? rubricMax : 0);
+
+      let finalMax = null; // null represents "no max / display as —"
+      if (rubricMax !== undefined) {
+        // Rubric has info: null => explicitly no max; number => use it (even 0 -> treat as no max)
+        finalMax = rubricMax === null ? null : (Number(rubricMax) > 0 ? Number(rubricMax) : null);
+      } else if (providedMax !== undefined && providedMax > 0) {
+        finalMax = providedMax;
+      } else {
+        finalMax = null;
+      }
+
       const parsedScore = Number(criterion.score ?? 0);
-      const excess = Number(criterion.excessScore ?? criterion.excess_score ?? Math.max(0, parsedScore - finalMax));
+      const excess = finalMax != null
+        ? Number(criterion.excessScore ?? criterion.excess_score ?? Math.max(0, parsedScore - finalMax))
+        : Number(criterion.excessScore ?? criterion.excess_score ?? 0);
 
       return {
         criterion_key: key,
@@ -949,64 +1094,81 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
             </thead>
             <tbody>
               {draftCriteriaScores.map((criterion, i) => {
-                const paddingLeft = criterion.label && criterion.label.includes('.') ? '24px' : '8px';
-                const hasMaxPoints = Number(criterion.maxPoints || 0) > 0;
-                // Allow scoring input when the application is not finalized by VPAA.
-                // This ensures HR_Completed (and earlier statuses) can still input scores
-                // even when a per-criterion max is not present in the DB.
-                const allowScoreInput = hasMaxPoints || (selectedApplication && String(selectedApplication.status) !== 'VPAA_Completed');
+                const keyForThis = String(criterion.criterion_key || criterion.label || '').trim();
+                const hasChildren = draftCriteriaScores.some((c) => {
+                  const possibleParents = [c.parent_key, c.parentKey, c.parent];
+                  return possibleParents.some((pk) => pk !== undefined && String(pk) === keyForThis);
+                }) || (Array.isArray(criterion.children) && criterion.children.length > 0);
+
+                const rowIsDisplayOnly = Boolean(criterion.displayOnly || criterion.parentOnly || hasChildren);
+                const paddingLeft = rowIsDisplayOnly ? '8px' : (criterion.label && criterion.label.includes('.') ? '24px' : '8px');
+                const hasMaxPoints = Number(criterion.maxPoints ?? 0) > 0;
+                // Only allow scoring when there is a numeric per-criterion max defined.
+                // Criteria rendered as '—' (no max / rubric-defined no-max) will not show inputs.
+                const allowScoreInput = !rowIsDisplayOnly && hasMaxPoints;
                 
                 // Match the criterion label against raw or normalized submission part ids.
                 const partLabel = criterion.label || '';
                 const partLetter = partLabel.split('.')[0];
                 const compactPartLabel = normalizePartLookupKey(partLabel);
                 const compactPartLetter = normalizePartLookupKey(partLetter);
+                const submissionPartLabel = String(submission?.part_id || submission?.part_name || '')
+                  .trim()
+                  .split(/[-_\s\/]+/)
+                  .pop();
+                const exactSubmissionPartKey = normalizePartLookupKey(submissionPartLabel);
+                const exactCriterionPartKey = normalizePartLookupKey(partLabel);
+                const isExactPartMatch = exactSubmissionPartKey && exactCriterionPartKey && exactSubmissionPartKey === exactCriterionPartKey;
                 
                 // Construct candidate keys from the area roman numeral and the exact criterion label.
                 let partSubmissionFile = null;
-                const candidateKeys = [
+                const candidateKeys = rowIsDisplayOnly ? [] : [
                   partLabel,
-                  partLetter,
                   `Part ${partLabel}`,
-                  `Part ${partLetter}`,
                 ];
 
-                if (area?.label) {
+                if (!rowIsDisplayOnly && area?.label) {
                   const areaRomanMatch = area.label.match(/AREA\s+([IVX]+)/i);
                   const areaRoman = areaRomanMatch ? areaRomanMatch[1] : '';
                   if (areaRoman) {
                     candidateKeys.unshift(
                       `${areaRoman}-${partLabel}`,
-                      `${areaRoman}-${partLetter}`,
                       `${areaRoman}-${compactPartLabel}`,
                     );
                   }
                 }
 
-                const normalizedCandidates = candidateKeys
-                  .flatMap((key) => [key, normalizePartLookupKey(key)])
-                  .filter(Boolean);
+                if (rowIsDisplayOnly) {
+                  partSubmissionFile = submission?.file_path ? getPublicFileUrl(submission.file_path) : null;
+                } else {
+                  const normalizedCandidates = candidateKeys
+                    .flatMap((key) => [key, normalizePartLookupKey(key)])
+                    .filter(Boolean);
 
-                partSubmissionFile = normalizedCandidates
-                  .map((key) => partSubmissions[key])
-                  .find(Boolean) || null;
+                  partSubmissionFile = normalizedCandidates
+                    .map((key) => partSubmissions[key])
+                    .find(Boolean) || null;
 
-                if (!partSubmissionFile && compactPartLabel !== compactPartLetter) {
-                  partSubmissionFile = Object.entries(partSubmissions).find(([key, filePath]) => {
-                    const normalizedKey = normalizePartLookupKey(key);
-                    return filePath && normalizedKey.includes(compactPartLabel);
-                  })?.[1] || null;
+                  if (!partSubmissionFile && compactPartLabel !== compactPartLetter) {
+                    partSubmissionFile = Object.entries(partSubmissions).find(([key, filePath]) => {
+                      const normalizedKey = normalizePartLookupKey(key);
+                      return filePath && normalizedKey.includes(compactPartLabel);
+                    })?.[1] || null;
+                  }
+
+                  if (!partSubmissionFile && isExactPartMatch && submission?.file_path) {
+                    partSubmissionFile = getPublicFileUrl(submission.file_path);
+                  }
                 }
 
-                if (!partSubmissionFile && submission?.file_path) {
-                  partSubmissionFile = getPublicFileUrl(submission.file_path);
-                }
+                partSubmissionFile = resolvePreviewFileUrl(partSubmissionFile);
 
                 if (i === 0) {
                   console.log('[ScoringCriteriaPanel] File lookup for criterion 0:', {
                     partLabel,
                     partLetter,
                     compactPartLabel,
+                    isExactPartMatch,
                     'area.label': area.label,
                     candidateKeys,
                     partSubmissions,
@@ -1024,29 +1186,63 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
                       {hasMaxPoints ? criterion.maxPoints.toFixed(2) : '—'}
                     </td>
                     <td style={{ textAlign: 'right', padding: '8px 8px' }}>
-                      {allowScoreInput ? (
-                        <input
-                          id={`score-input-${criterion.criterion_key || i}`}
-                          name={`score-${criterion.criterion_key || i}`}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={criterion.score}
-                          onFocus={(e) => {
-                            if (Number(criterion.score) === 0) {
-                              e.target.select();
-                            }
-                          }}
-                          onChange={(e) => handleCriterionChange(criterion.criterion_key, e.target.value)}
-                          aria-label={`Score for ${criterion.label}: ${criterion.title}`}
-                          style={{ width: '100px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '12px', textAlign: 'right', background: 'white' }}
-                        />
-                      ) : (
-                        <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>—</span>
+                      {rowIsDisplayOnly ? null : (
+                        allowScoreInput ? (
+                          <input
+                            id={`score-input-${criterion.criterion_key || i}`}
+                            name={`score-${criterion.criterion_key || i}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={criterion.score}
+                            onFocus={(e) => {
+                              if (Number(criterion.score) === 0) {
+                                e.target.select();
+                              }
+                            }}
+                            onChange={(e) => handleCriterionChange(criterion.criterion_key, e.target.value)}
+                            aria-label={`Score for ${criterion.label}: ${criterion.title}`}
+                            style={{ width: '100px', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '12px', textAlign: 'right', background: 'white' }}
+                          />
+                        ) : (
+                          <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>—</span>
+                        )
                       )}
                     </td>
                     <td style={{ textAlign: 'center', padding: '8px 8px' }}>
-                      {area?.area_id === 7 ? (
+                      {rowIsDisplayOnly ? (
+                        partSubmissionFile ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setViewerModalFile(partSubmissionFile);
+                              setViewerModalOpen(true);
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid #3b82f6',
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.background = '#dbeafe';
+                              e.target.style.borderColor = '#1d4ed8';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.background = '#eff6ff';
+                            }}
+                          >
+                            View File
+                          </button>
+                        ) : (
+                          <span style={{ color: '#9ca3af', fontSize: '11px' }}>—</span>
+                        )
+                      ) : area?.area_id === 7 ? (
                         <span style={{ color: '#9ca3af', fontSize: '11px' }}>—</span>
                       ) : partSubmissionFile ? (
                         <button
@@ -1097,7 +1293,7 @@ export function ScoringCriteriaPanel({ area, submission, criteria, onClose, area
       {/* File Viewer Modal */}
       {viewerModalOpen && (
         <DocumentViewer
-          fileUrl={viewerModalFile}
+          fileUrl={resolvePreviewFileUrl(viewerModalFile)}
           fileName={viewerModalFile?.split('/').pop() || 'document'}
           onClose={() => setViewerModalOpen(false)}
         />

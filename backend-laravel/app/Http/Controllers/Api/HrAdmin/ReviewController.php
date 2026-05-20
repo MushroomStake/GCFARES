@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\HrAdmin;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -930,6 +932,54 @@ class ReviewController extends Controller
         ]);
     }
 
+    public function storageFile(Request $request)
+    {
+        $validated = $request->validate([
+            'path' => ['required', 'string', 'max:512'],
+            'bucket' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $path = ltrim($validated['path'], '/');
+        $bucket = $validated['bucket'] ?? 'public';
+
+        if (Str::startsWith($path, ['http://', 'https://'])) {
+            return $this->proxyRemoteFile($path);
+        }
+
+        $candidatePaths = $this->resolveStorageCandidates($path);
+        $bucketOrder = array_values(array_unique(array_filter([$bucket, 'public', 'local'])));
+
+        foreach ($bucketOrder as $disk) {
+            foreach ($candidatePaths as $candidate) {
+                if (!Storage::disk($disk)->exists($candidate)) {
+                    $externalFile = $this->resolveExternalStorageFile($candidate, $disk);
+                    if ($externalFile === null) {
+                        continue;
+                    }
+
+                    return response()->file($externalFile['path'], [
+                        'Content-Type' => $externalFile['mime_type'] ?: 'application/octet-stream',
+                    ]);
+                }
+
+                $downloadName = basename($candidate);
+                $mimeType = Storage::disk($disk)->mimeType($candidate);
+
+                return Storage::disk($disk)->response($candidate, $downloadName, [
+                    'Content-Type' => $mimeType ?: 'application/octet-stream',
+                ]);
+            }
+        }
+
+        return response()->json([
+            'error' => 'File not found.',
+            'path' => $path,
+            'candidate_paths' => $candidatePaths,
+            'bucket' => $bucket,
+            'external_roots' => $this->submissionStorageRoots(),
+        ], 404);
+    }
+
     public function templates(Request $request)
     {
         $rows = DB::table('area_part_templates')->where('is_active', true)->get();
@@ -1100,5 +1150,89 @@ class ReviewController extends Controller
         $baseUrl = rtrim($request->getSchemeAndHttpHost(), '/');
 
         return $baseUrl . '/storage/' . $normalizedPath;
+    }
+
+    private function resolveStorageCandidates(string $path): array
+    {
+        $path = ltrim($path, '/');
+
+        $candidates = [
+            $path,
+            preg_replace('#^documents/#', '', $path),
+            preg_replace('#^public/#', '', $path),
+            preg_replace('#^storage/#', '', $path),
+        ];
+
+        if (!Str::startsWith($path, 'documents/')) {
+            $candidates[] = 'documents/' . $path;
+        }
+
+        if (!Str::startsWith($path, 'public/')) {
+            $candidates[] = 'public/' . $path;
+        }
+
+        return array_values(array_unique(array_filter($candidates, static fn ($value) => is_string($value) && $value !== '')));
+    }
+
+    private function proxyRemoteFile(string $url)
+    {
+        try {
+            $response = Http::timeout(30)
+                ->accept('application/octet-stream')
+                ->get($url);
+        } catch (\Throwable $exception) {
+            return response()->json(['error' => 'File not found.'], 404);
+        }
+
+        if (!$response->successful()) {
+            return response()->json(['error' => 'File not found.'], 404);
+        }
+
+        $contentType = $response->header('Content-Type', 'application/octet-stream');
+        $path = parse_url($url, PHP_URL_PATH) ?: '';
+        $downloadName = basename($path) ?: 'download.bin';
+
+        return response($response->body(), 200, [
+            'Content-Type' => $contentType,
+            'Content-Disposition' => 'inline; filename="' . $downloadName . '"',
+        ]);
+    }
+
+    private function resolveExternalStorageFile(string $candidate, string $disk): ?array
+    {
+        foreach ($this->submissionStorageRoots() as $root) {
+            $absolutePath = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $candidate);
+
+            if (!File::exists($absolutePath) || !File::isFile($absolutePath)) {
+                continue;
+            }
+
+            return [
+                'path' => $absolutePath,
+                'mime_type' => File::mimeType($absolutePath) ?: 'application/octet-stream',
+                'disk' => $disk,
+            ];
+        }
+
+        return null;
+    }
+
+    private function submissionStorageRoots(): array
+    {
+        $roots = [
+            storage_path('app/public'),
+        ];
+
+        $facultyPortalPublicRoot = dirname(dirname(base_path())) . DIRECTORY_SEPARATOR . 'FACULTY PORTAL' . DIRECTORY_SEPARATOR . 'backend-laravel' . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'public';
+        if (is_dir($facultyPortalPublicRoot)) {
+            $roots[] = $facultyPortalPublicRoot;
+        }
+
+        $configuredExternalRoot = env('FACULTY_PORTAL_PUBLIC_STORAGE_PATH');
+        if (is_string($configuredExternalRoot) && $configuredExternalRoot !== '' && is_dir($configuredExternalRoot)) {
+            $roots[] = $configuredExternalRoot;
+        }
+
+        return array_values(array_unique($roots));
     }
 }

@@ -183,6 +183,48 @@ function getPublicFileUrl(storagePath) {
   return `${apiBase}/storage/${encodedPath}`;
 }
 
+function getApiOrigin() {
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+  return apiBase;
+}
+
+function extractStoragePath(fileUrl) {
+  if (!fileUrl) return null;
+
+  const raw = String(fileUrl);
+  try {
+    const parsed = new URL(raw);
+    const storageIndex = parsed.pathname.indexOf('/storage/');
+    if (storageIndex >= 0) {
+      return decodeURIComponent(parsed.pathname.slice(storageIndex + '/storage/'.length).replace(/^\/+/, ''));
+    }
+  } catch (error) {
+    // Not a full URL; fall through.
+  }
+
+  const storageIndex = raw.indexOf('/storage/');
+  if (storageIndex >= 0) {
+    return decodeURIComponent(raw.slice(storageIndex + '/storage/'.length).replace(/^\/+/, ''));
+  }
+
+  if (raw.startsWith('documents/')) {
+    return raw.replace(/^\/+/, '');
+  }
+
+  return raw.replace(/^\/+/, '');
+}
+
+function buildAuthenticatedFileUrl(fileUrl) {
+  const storagePath = extractStoragePath(fileUrl);
+  if (!storagePath) return null;
+  return `${getApiOrigin()}/api/review/storage-file?path=${encodeURIComponent(storagePath)}&bucket=public`;
+}
+
+function resolvePreviewFileUrl(fileUrl) {
+  if (!fileUrl) return null;
+  return getPublicFileUrl(fileUrl) || fileUrl;
+}
+
 function flattenAreaCriteria(areaDefinition) {
   const rows = [];
   const walk = (items) => {
@@ -446,6 +488,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
   const [areas, setAreas] = useState([]);
   const [fileModalOpen, setFileModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFilePreviewUrl, setSelectedFilePreviewUrl] = useState(null);
   const [openAreaAccordions, setOpenAreaAccordions] = useState({});
   const [qualExperience, setQualExperience] = useState('No data provided');
   const [qualDegree, setQualDegree] = useState('No data provided');
@@ -714,6 +757,64 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
     };
   }, [open, app]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = null;
+
+    if (!fileModalOpen || !selectedFile?.url) {
+      setSelectedFilePreviewUrl(null);
+      return undefined;
+    }
+
+    const loadPreview = async () => {
+      const endpoint = buildAuthenticatedFileUrl(selectedFile.url);
+      const token = (() => {
+        try {
+          return localStorage.getItem('api_token');
+        } catch {
+          return null;
+        }
+      })();
+
+      if (!endpoint) {
+        setSelectedFilePreviewUrl(null);
+        return;
+      }
+
+      try {
+        const headers = { Accept: 'application/octet-stream' };
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+
+        const response = await fetch(endpoint, { headers });
+        if (!response.ok) {
+          throw new Error(`Failed to load file (${response.status})`);
+        }
+
+        const blob = await response.blob();
+        objectUrl = window.URL.createObjectURL(blob);
+
+        if (!cancelled) {
+          setSelectedFilePreviewUrl(objectUrl);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSelectedFilePreviewUrl(null);
+        }
+      }
+    };
+
+    loadPreview();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        window.URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [fileModalOpen, selectedFile?.url]);
+
   if (!open || !app) return null;
 
   const firstName = fullUserData?.name_first || app.faculty?.name_first || '';
@@ -725,6 +826,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
   const departmentDisplay = departmentCode || departmentName;
   const totalPoints = areas.reduce((sum, area) => sum + Number(area.current || 0), 0);
   const fileViewerOpen = fileModalOpen && selectedFile;
+  const selectedFileUrl = selectedFilePreviewUrl;
   const educationalAttainmentValue = formatQualificationValue(fullUserData?.educational_attainment, fullUserData?.educational_attainment_json);
   const eligibilityExamsValue = formatQualificationValue(fullUserData?.eligibility_exams, fullUserData?.eligibility_exams_json);
 
@@ -914,7 +1016,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              setSelectedFile({ url: criterion.fileUrl || '', fileName: criterion.fileName || 'Untitled File' });
+                                              setSelectedFile({ url: resolvePreviewFileUrl(criterion.fileUrl) || '', fileName: criterion.fileName || 'Untitled File' });
                                               setFileModalOpen(true);
                                             }}
                                             style={{ border: 'none', background: '#d7f4e7', color: '#0a5e2f', fontSize: '11px', fontWeight: 700, padding: '6px 12px', borderRadius: '9999px', cursor: 'pointer' }}
@@ -1001,7 +1103,7 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: '1px solid #e2e8f0', background: '#fff' }}>
                   <h3 style={{ fontSize: '20px', fontWeight: 700, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedFile.fileName}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <a href={selectedFile.url} download style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '10px', background: '#3b82f6', color: '#fff', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
+                    <a href={selectedFileUrl || selectedFile.url} download style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '10px', background: '#3b82f6', color: '#fff', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
                       <DownloadResultIcon />
                       Download
                     </a>
@@ -1009,18 +1111,23 @@ function HistoryFacultyModal({ open, cycle, app, onClose, onDownloadResult }) {
                   </div>
                 </div>
                 <div style={{ flex: 1, overflow: 'auto', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-                  {isPdfUrl(selectedFile.url) ? (
-                    <iframe src={selectedFile.url} title="PDF viewer" style={{ width: '100%', height: '100%', border: 0, borderRadius: '12px', background: '#fff' }} />
+                  {selectedFileUrl ? isPdfUrl(selectedFile.url) ? (
+                    <iframe src={selectedFileUrl} title="PDF viewer" style={{ width: '100%', height: '100%', border: 0, borderRadius: '12px', background: '#fff' }} />
                   ) : isPreviewImageUrl(selectedFile.url) ? (
-                    <img src={selectedFile.url} alt={selectedFile.fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '12px' }} />
+                    <img src={selectedFileUrl} alt={selectedFile.fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '12px' }} />
                   ) : (
                     <div style={{ textAlign: 'center', color: '#64748b' }}>
                       <p style={{ fontWeight: 700, marginBottom: '8px' }}>Preview not available</p>
                       <p style={{ fontSize: '14px', marginBottom: '16px' }}>This file type cannot be previewed in the browser</p>
-                      <a href={selectedFile.url} download style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '10px', background: '#3b82f6', color: '#fff', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
+                      <a href={selectedFileUrl || selectedFile.url} download style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '10px', background: '#3b82f6', color: '#fff', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
                         <DownloadResultIcon />
                         Download File
                       </a>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', color: '#64748b' }}>
+                      <p style={{ fontWeight: 700, marginBottom: '8px' }}>Loading preview...</p>
+                      <p style={{ fontSize: '14px', marginBottom: '16px' }}>Fetching the file securely from the review server</p>
                     </div>
                   )}
                 </div>

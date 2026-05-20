@@ -50,6 +50,7 @@ Route::prefix('review')->middleware('api.token:HR')->controller(ReviewController
     Route::patch('/submission-scoring/{submissionId}', 'updateSubmissionScoring');
     Route::post('/submission-scoring/{submissionId}', 'updateSubmissionScoring');
     Route::get('/storage-url', 'storagePublicUrl');
+    Route::get('/storage-file', 'storageFile');
     Route::get('/templates', 'templates');
     Route::get('/templates/{templateId}/file', 'templateFile');
     Route::post('/templates/upload', 'uploadTemplate');
