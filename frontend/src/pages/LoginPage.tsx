@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient'; 
+import { laravelApiClient as supabase } from '../laravelApiClient'; 
 
 const LoginPage = () => {
   // We now treat 'email' as just the username/prefix part

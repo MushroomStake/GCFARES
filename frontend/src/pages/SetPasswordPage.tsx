@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient'; 
+import { laravelApiClient as supabase } from '../laravelApiClient'; 
 
 const SetPasswordPage = () => {
   const navigate = useNavigate();
@@ -25,16 +25,22 @@ const SetPasswordPage = () => {
           return;
         }
 
+        const userEmail = user?.email || user?.domain_email;
+        if (!userEmail) {
+          navigate('/login');
+          return;
+        }
+
         const { data, error: dbError } = await supabase
   .from('users')
   .select('*')
-  .eq('domain_email', user.email) // <-- Works perfectly!
-  .single();
+  .eq('domain_email', userEmail)
+  .maybeSingle();
 
         if (!dbError && data) {
           setUserData({
             name: `${data.name_first || ''} ${data.name_last || ''}`.trim() || 'User', // Updated to match your schema's exact column names
-            email: user.email || ''
+            email: userEmail || ''
           });
         }
       } catch (err) {
@@ -65,11 +71,12 @@ const SetPasswordPage = () => {
       setLoading(true);
 
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !user.email) throw new Error('No user found');
+      const userEmail = user?.email || user?.domain_email;
+      if (!user || !userEmail) throw new Error('No user found');
 
       // 1. Verify temporary password (Reauthenticate)
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
+        email: userEmail,
         password: tempPassword,
       });
 
@@ -88,7 +95,7 @@ const SetPasswordPage = () => {
      const { error: dbError } = await supabase
   .from('users')
   .update({ is_first_login: false })
-  .eq('domain_email', user.email);
+    .eq('domain_email', userEmail);
 
       if (dbError) throw dbError;
 

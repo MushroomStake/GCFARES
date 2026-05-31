@@ -4,7 +4,7 @@ import { CheckCircle2, Search, Filter, ArrowRight, Calendar, Download, Loader2, 
 import { Link } from 'react-router-dom';
 import ExcelJS from 'exceljs';
 import { RANKING_RUBRICS } from '../../rankingRubrics';
-import { supabase } from '../supabaseClient';
+import { laravelApiClient as supabase } from '../laravelApiClient';
 
 export interface CycleHistory {
   cycle_id: string;
@@ -116,16 +116,16 @@ export default function HistoryPage() {
         if (appsError) throw appsError;
 
         const safeCyclesData = cyclesData || [];
-        const safeAppsData = (appsData || []).filter((app) => normalizeStatus(app.status) !== 'draft');
+        const safeAppsData = (appsData || []).filter((app: any) => normalizeStatus(app.status) !== 'draft');
 
         const fetchedCycles: CycleHistory[] = [];
         let highestAverage = 0;
 
         safeCyclesData.forEach((data: any) => {
-          const cycleApps = safeAppsData.filter((app) => String(app.cycle_id) === String(data.cycle_id));
+          const cycleApps = safeAppsData.filter((app: any) => String(app.cycle_id) === String(data.cycle_id));
           const totalFaculty = cycleApps.length;
 
-          const totalPoints = cycleApps.reduce((sum, app) => {
+          const totalPoints = cycleApps.reduce((sum: number, app: any) => {
             const score = Number(app.hr_score) || 0;
             return sum + score;
           }, 0);

@@ -13,15 +13,30 @@ import {
   Menu,
   X
 } from 'lucide-react';
-import { supabase } from '../supabaseClient'; 
+import { laravelApiClient as supabase } from '../laravelApiClient'; 
 
-// Define the notification type based on your Supabase table
+// Notification type returned by the Laravel-backed database.
 interface AppNotification {
   id: string;
   message: string;
   is_read: boolean;
   created_at: string;
 }
+
+const normalizeNotification = (value: unknown): AppNotification | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const row = value as Record<string, unknown>;
+
+  return {
+    id: String(row.id ?? ''),
+    message: String(row.message ?? ''),
+    is_read: Boolean(row.is_read),
+    created_at: String(row.created_at ?? new Date().toISOString()),
+  };
+};
 
 const DashboardLayout = () => {
   const location = useLocation();
@@ -76,7 +91,13 @@ const DashboardLayout = () => {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
         (payload) => {
-          setNotifications((prev) => [payload.new as AppNotification, ...prev]);
+          const newNotification = normalizeNotification(payload.new);
+
+          if (!newNotification) {
+            return;
+          }
+
+          setNotifications((prev) => [newNotification, ...prev]);
         }
       )
       .subscribe();

@@ -1,10 +1,6 @@
-import { Outlet, useLocation } from 'react-router-dom';
-import { ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Outlet } from 'react-router-dom';
 
 const AuthLayout = () => {
-  const location = useLocation();
-  const isSetPassword = location.pathname === '/set-password';
-
   return (
     <div className="flex min-h-screen bg-surface">
     

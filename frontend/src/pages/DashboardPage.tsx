@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle2, Clock, Activity as ActivityIcon, BellRing, AlertTriangle, Loader2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../supabaseClient'; 
+import { laravelApiClient as supabase } from '../laravelApiClient'; 
 
 interface Cycle {
   id: string;
@@ -23,13 +23,28 @@ interface ActivityLog {
   isRead: boolean;
 }
 
+interface NotificationRow {
+  id?: string | number;
+  message?: string;
+  is_read?: boolean;
+  created_at?: string;
+}
+
+const normalizeNotificationRow = (value: unknown): NotificationRow | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  return value as NotificationRow;
+};
+
 const DashboardPage = () => {
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [currentPeriod, setCurrentPeriod] = useState<Cycle | null>(null);
   const [activePeriods, setActivePeriods] = useState<Cycle[]>([]);
   const [donePeriods, setDonePeriods] = useState<Cycle[]>([]);
   const [donePeriodsPage, setDonePeriodsPage] = useState(1);
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   // New states for the submission process
@@ -51,14 +66,19 @@ const DashboardPage = () => {
       )
       .subscribe();
 
-    // --- NEW: Real-time listener for new notifications ---
+    // Real-time listener for new notifications.
     const notificationSubscription = supabase
       .channel('custom-insert-channel')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
         (payload) => {
-          const newData = payload.new;
+          const newData = normalizeNotificationRow(payload.new);
+
+          if (!newData) {
+            return;
+          }
+
           const logDate = newData.created_at ? new Date(newData.created_at) : new Date();
           const timeString = logDate.toLocaleDateString('en-US', { 
             month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' 
@@ -102,14 +122,14 @@ const DashboardPage = () => {
     try {
       if (!silent) setLoading(true);
 
-      // 1. Fetch Cycles from Supabase
+      // 1. Fetch cycles from the Laravel API-backed database
       const { data: cyclesData, error: cyclesError } = await supabase
         .from('ranking_cycles')
         .select('*');
 
       if (cyclesError) throw cyclesError;
 
-      const fetchedCycles: Cycle[] = (cyclesData || []).map((data) => {
+      const fetchedCycles: Cycle[] = (cyclesData || []).map((data: any) => {
         const startDate = data.start_date 
           ? new Date(data.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
           : 'TBA';
@@ -162,7 +182,7 @@ const DashboardPage = () => {
         console.warn("Could not fetch notifications.", notifError);
         setActivities([]);
       } else {
-        const fetchedLogs: ActivityLog[] = (notifData || []).map((data) => {
+        const fetchedLogs: ActivityLog[] = (notifData || []).map((data: any) => {
           const logDate = data.created_at ? new Date(data.created_at) : null;
           const timeString = logDate 
             ? logDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 

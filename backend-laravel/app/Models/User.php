@@ -9,8 +9,14 @@ class User extends Authenticatable
 {
     use Notifiable;
 
+    public $timestamps = false;
+
     // 1. Tell Laravel the primary key is user_id, not id
     protected $primaryKey = 'user_id';
+
+    protected $hidden = [
+        'password_hash',
+    ];
 
     // 2. Map fillable properties to your actual backup column fields
     protected $fillable = [

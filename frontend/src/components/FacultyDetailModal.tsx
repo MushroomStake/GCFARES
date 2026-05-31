@@ -12,7 +12,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { supabase } from '../supabaseClient'; 
+import { laravelApiClient as supabase, laravelApiBaseUrl } from '../laravelApiClient'; 
 import { RANKING_RUBRICS } from '../../rankingRubrics';
 import jsPDF from 'jspdf';
 
@@ -41,6 +41,8 @@ interface CriteriaRow {
   title: string;
   maxPoints: number | null;
   score: number;
+  cappedScore: number;
+  excessScore: number;
   fileUrl: string | null;
   fileName: string;
 }
@@ -50,6 +52,7 @@ interface Area {
   title: string;
   max: number;
   current: number; 
+  excess: number;
   groupedSubmissions: GroupedSubmissions[]; 
   criteriaRows: CriteriaRow[];
   color: string;
@@ -87,6 +90,25 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '');
+  }
+
+  function extractSubmissionPartCandidates(submission: any, titleMap: Record<number, string>) {
+    const candidates: string[] = [];
+
+    if (submission?.part_id) candidates.push(String(submission.part_id));
+    if (submission?.submission_id && titleMap[submission.submission_id]) candidates.push(String(titleMap[submission.submission_id]));
+    if (submission?.part_name) candidates.push(String(submission.part_name));
+
+    if (submission?.file_path) {
+      const filePath = String(submission.file_path);
+      const segment = filePath
+        .split('/')
+        .find((part: string) => /part\s*[a-z0-9]+/i.test(part) || /^part\s*/i.test(part));
+
+      if (segment) candidates.push(segment);
+    }
+
+    return Array.from(new Set(candidates.filter(Boolean)));
   }
 
   // Compress rank ranges (e.g., "Instructor I, Instructor II, Instructor III" -> "Instructor I-III")
@@ -141,13 +163,13 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
   function getPublicFileUrl(storagePath: string | null) {
     if (!storagePath) return null;
     if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) return storagePath;
-    const supabaseUrl = (supabase as any).supabaseUrl || '';
+    const baseUrl = laravelApiBaseUrl.replace(/\/$/, '');
     const bucket = 'documents';
     const encodedPath = storagePath
       .split('/')
       .map((segment) => encodeURIComponent(segment))
       .join('/');
-    return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodedPath}`;
+    return `${baseUrl}/storage/${bucket}/${encodedPath}`;
   }
 
   function getFileExtension(url: string) {
@@ -247,34 +269,67 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
           
         if (areasError) throw areasError;
 
-        const { data: submissionsData, error: subError } = await supabase
+        let submissionsQuery = supabase
           .from('area_submissions')
           .select('*')
           .eq('application_id', appId);
+
+        if (applicationData?.cycle_id) {
+          submissionsQuery = submissionsQuery.eq('cycle_id', applicationData.cycle_id);
+        }
+
+        const { data: submissionsData, error: subError } = await submissionsQuery;
         
         if (subError) throw subError;
 
-        // Build score map from submissions by matching part_id to criteria labels
-        // Submissions contain hr_points (HR scored) or csv_total_average_rate (auto-scored from CSV)
-        const scoreMap: Record<string, any> = {};
-        if (submissionsData) {
-          submissionsData.forEach(sub => {
-            const score = Number(sub.hr_points || sub.csv_total_average_rate || 0);
-            if (score > 0 && sub.part_id) {
-              // Index by part_id (e.g., "I-A", "I-B")
-              scoreMap[normalizePartLookupKey(sub.part_id)] = { score, submission_id: sub.submission_id };
-              scoreMap[String(sub.part_id)] = { score, submission_id: sub.submission_id };
-              console.log(`[VPAA Modal] Found score from submission: part_id="${sub.part_id}", score=${score}`);
-            }
-          });
+        const submissionIds = (submissionsData || [])
+          .map((sub: any) => sub?.submission_id)
+          .filter((id: any) => id !== null && id !== undefined);
+
+        let scoringRows: any[] = [];
+        if (submissionIds.length > 0) {
+          const { data: scoringData, error: scoringError } = await supabase
+            .from('area_submission_criterion_scores')
+            .select('*')
+            .in('submission_id', submissionIds);
+
+          if (scoringError) {
+            console.warn('[VPAA Modal] Unable to load area_submission_criterion_scores, falling back to area_submissions totals.', scoringError);
+          } else {
+            scoringRows = Array.isArray(scoringData) ? scoringData : [];
+          }
         }
-        console.log('[VPAA Modal] Built scoreMap from area_submissions:', Object.keys(scoreMap).length, 'entries');
+
+        const scoringBySubmissionId: Record<string, number> = {};
+        const scoringCriteriaBySubmissionId: Record<string, Record<string, { score: number; cappedScore: number; excessScore: number }>> = {};
 
         // Group submissions into arrays per area_id and map to part keys (normalize part_id/file part)
         const fetchedSubmissions: Record<string, any[]> = {};
         const titleMap: Record<number, string> = {};
         if (submissionsData) {
-          submissionsData.forEach(docData => {
+          scoringRows.forEach((row: any) => {
+            const submissionId = String(row.submission_id);
+            const rawScore = Number(row.score ?? 0) || 0;
+            const cappedScore = Number(row.capped_score ?? rawScore) || 0;
+            const excessScore = Number(row.excess_score ?? 0) || 0;
+
+            if (!scoringCriteriaBySubmissionId[submissionId]) {
+              scoringCriteriaBySubmissionId[submissionId] = {};
+            }
+
+            const criterionMap = scoringCriteriaBySubmissionId[submissionId];
+            const keys = [row.criterion_key, row.criterion_label, row.criterion_title]
+              .flatMap((key) => [key, normalizePartLookupKey(key)])
+              .filter(Boolean);
+
+            keys.forEach((key) => {
+              criterionMap[String(key)] = { score: rawScore, cappedScore, excessScore };
+            });
+
+            scoringBySubmissionId[submissionId] = Number(scoringBySubmissionId[submissionId] || 0) + cappedScore;
+          });
+
+          submissionsData.forEach((docData: any) => {
              const areaId = String(docData.area_id);
              if (!fetchedSubmissions[areaId]) fetchedSubmissions[areaId] = [];
              fetchedSubmissions[areaId].push(docData);
@@ -283,10 +338,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                titleMap[docData.submission_id] = docData.part_id;
              }
           });
+
         }
 
         if (areasData) {
-          const mergedAreas = areasData.map(area => {
+          const mergedAreas = areasData.map((area: any) => {
             const rubricAreaId = DB_AREA_ID_TO_RUBRIC_AREA_ID[Number(area.area_id)] || Number(area.area_id);
             const rubricArea = RANKING_RUBRICS.find((item) => item.areaId === rubricAreaId);
             const criteriaDefinitions = flattenAreaCriteria(rubricArea);
@@ -298,17 +354,18 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
             // Build a map keyed by normalized part key (part_id or part name from file)
             submissions.forEach(sub => {
+              const submissionId = String(sub.submission_id);
+              const submissionPoints = Number(scoringBySubmissionId[submissionId] ?? sub.vpaa_points ?? sub.hr_points ?? 0) || 0;
+
               if (!sub.file_path) {
                 return;
               }
 
-              // Determine a part key: prefer explicit part_id, then criterion title, then part_name, then file path part
-              let rawKey = sub.part_id || null;
-              if (!rawKey) rawKey = titleMap[sub.submission_id] || null;
-              if (!rawKey && sub.part_name) rawKey = sub.part_name;
+              // Determine a part key from available submission metadata.
+              const candidateKeys = extractSubmissionPartCandidates(sub, titleMap);
+              let rawKey = candidateKeys[0] || null;
               if (!rawKey && sub.file_path) {
-                const match = sub.file_path.split('/').find((p: string) => /part\s*\d+/i.test(p) || /^part\s*/i.test(p));
-                rawKey = match || sub.file_path.split('/').pop() || 'other';
+                rawKey = sub.file_path.split('/').pop() || 'other';
               }
 
               const partKey = normalizePartLookupKey(rawKey || 'other');
@@ -319,14 +376,12 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
               // build public URL
               const fullFileUrl = getPublicFileUrl(sub.file_path) || '';
               const fileName = String(sub.file_path).split('/').pop() || 'Untitled File';
-              const submissionPoints = Number(sub.vpaa_points ?? sub.hr_points ?? 0) || 0;
-              areaCurrentPoints += submissionPoints;
 
               const fileItem: FileItem = { url: fullFileUrl, fileName, points: submissionPoints };
               if (!partSubmissionsMap[partKey]) partSubmissionsMap[partKey] = [];
               partSubmissionsMap[partKey].push(fileItem);
 
-              [rawKey, partKey, titleMap[sub.submission_id], sub.part_name].filter(Boolean).forEach((candidateKey) => {
+              [rawKey, partKey, ...candidateKeys].filter(Boolean).forEach((candidateKey) => {
                 const normalizedCandidateKey = normalizePartLookupKey(candidateKey);
                 if (normalizedCandidateKey && !submissionLookup[normalizedCandidateKey]) {
                   submissionLookup[normalizedCandidateKey] = { url: fullFileUrl, fileName };
@@ -349,14 +404,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
               })
               .sort((a, b) => a.partName.localeCompare(b.partName));
 
-            const criteriaRows: CriteriaRow[] = criteriaDefinitions.map((criterion) => {
+            const criteriaRows = criteriaDefinitions.map((criterion) => {
               const partLabel = criterion.label || '';
               const partLetter = partLabel.split('.')[0];
               const compactPartLabel = normalizePartLookupKey(partLabel);
-              const compactPartLetter = normalizePartLookupKey(partLetter);
 
-              // Build candidate keys based on criterion label and rubric area code
-              // E.g., for Area I criterion "A", look for "I-A" in part_id
               const candidateKeys = [
                 partLabel,
                 partLetter,
@@ -380,57 +432,106 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                 .map((key) => submissionLookup[key])
                 .find(Boolean) || null;
 
-              if (!fileMatch && compactPartLabel !== compactPartLetter) {
-                const fuzzyMatch = Object.entries(submissionLookup).find(([key, filePath]) => {
-                  const normalizedKey = normalizePartLookupKey(key);
-                  return Boolean(filePath?.url) && normalizedKey.includes(compactPartLabel);
-                })?.[1] || null;
+              let score = 0;
+              let cappedScore = 0;
+              let excessScore = 0;
 
-                if (fuzzyMatch) {
-                  const scoreKey = normalizedCandidates.find((key) => scoreMap[key]) || normalizedCandidates[0];
-                  const scoreRow = scoreMap[scoreKey];
-                  return {
-                    criterionKey: criterion.criterionKey,
-                    label: criterion.label,
-                    title: criterion.title,
-                    maxPoints: criterion.maxPoints,
-                    score: scoreRow ? Number(scoreRow.score || 0) : 0,
-                    fileUrl: fuzzyMatch.url,
-                    fileName: fuzzyMatch.fileName,
-                  };
-                }
-              }
-
-              // Primary lookup: match by part_id suffix (e.g., "A" matches "I-A")
-              let scoreRow = null;
               for (const key of normalizedCandidates) {
-                if (scoreMap[key]) {
-                  scoreRow = scoreMap[key];
+                const matchedSubmission = submissions.find((submission) => {
+                  const submissionKeys = [
+                    submission.part_id,
+                    titleMap[submission.submission_id],
+                    submission.part_name,
+                  ].flatMap((value) => [value, normalizePartLookupKey(value)]).filter(Boolean);
+
+                  return submissionKeys.some((submissionKey) => String(submissionKey) === String(key));
+                });
+
+                if (!matchedSubmission?.submission_id) {
+                  continue;
+                }
+
+                const matchedSubmissionId = String(matchedSubmission.submission_id);
+                const criterionScores = scoringCriteriaBySubmissionId[matchedSubmissionId] || {};
+                const criterionKeys = [criterion.criterionKey, criterion.label, criterion.title]
+                  .flatMap((value) => [value, normalizePartLookupKey(value)])
+                  .filter(Boolean);
+
+                const matchedScore = criterionKeys
+                  .map((criterionKey) => criterionScores[String(criterionKey)])
+                  .find((value) => value !== undefined);
+
+                if (matchedScore !== undefined) {
+                  if (typeof matchedScore === 'object' && matchedScore !== null) {
+                    score = Number(matchedScore.score || 0) || 0;
+                    cappedScore = Number(matchedScore.cappedScore || 0) || 0;
+                    excessScore = Number(matchedScore.excessScore || 0) || 0;
+                  } else {
+                    score = Number(matchedScore || 0) || 0;
+                    cappedScore = score;
+                    excessScore = 0;
+                  }
+
                   break;
                 }
               }
-              
-              const score = scoreRow ? Number(scoreRow.score || 0) : 0;
-              if (criterion.label === 'A') {
-                console.log(`[VPAA Modal] Area ${rubricAreaId} Criterion ${criterion.label}: tried keys=${normalizedCandidates.slice(0, 3)}, scoreRow=${scoreRow ? 'FOUND (score=' + scoreRow.score + ')' : 'NOT FOUND'}`);
+
+              if (!score) {
+                for (const submission of submissions) {
+                  const submissionId = String(submission.submission_id);
+                  const criterionScores = scoringCriteriaBySubmissionId[submissionId] || {};
+                  const criterionKeys = [criterion.criterionKey, criterion.label, criterion.title]
+                    .flatMap((value) => [value, normalizePartLookupKey(value)])
+                    .filter(Boolean);
+
+                  const matchedScore = criterionKeys
+                    .map((criterionKey) => criterionScores[String(criterionKey)])
+                    .find((value) => value !== undefined);
+
+                  if (matchedScore !== undefined) {
+                    if (typeof matchedScore === 'object' && matchedScore !== null) {
+                      score = Number(matchedScore.score || 0) || 0;
+                      cappedScore = Number(matchedScore.cappedScore || 0) || 0;
+                      excessScore = Number(matchedScore.excessScore || 0) || 0;
+                    } else {
+                      score = Number(matchedScore || 0) || 0;
+                      cappedScore = score;
+                      excessScore = 0;
+                    }
+
+                    break;
+                  }
+                }
               }
-              
+
               return {
                 criterionKey: criterion.criterionKey,
                 label: criterion.label,
                 title: criterion.title,
                 maxPoints: criterion.maxPoints,
-                score: score,
+                score,
+                cappedScore,
+                excessScore,
                 fileUrl: fileMatch?.url || null,
                 fileName: fileMatch?.fileName || 'Untitled File',
               };
-            });
+            }) as CriteriaRow[];
+
+            const criteriaCappedTotal = criteriaRows.reduce((sum, row) => sum + Number(row.cappedScore || 0), 0);
+
+            // HR parity: area totals come from capped criterion scores only.
+            // If an area has no scored criteria, it remains 0 instead of inheriting
+            // stale submission totals from prior imports or placeholder rows.
+            areaCurrentPoints = criteriaCappedTotal;
+
+            const areaExcessPoints = criteriaRows.reduce((sum, row) => sum + Number(row.excessScore || 0), 0);
 
             return {
               id: String(area.area_id),
               title: area.area_name || `Area ${area.area_id}`,
               max: Number(area.max_possible_points) || 0,
               current: areaCurrentPoints,
+              excess: areaExcessPoints,
               groupedSubmissions,
               criteriaRows,
               color: 'bg-[#0a5e2f]'
@@ -553,21 +654,21 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
       // College name (main title)
       doc.setFontSize(18);
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.text('GORDON COLLEGE', pageWidth / 2, y, { align: 'center' });
       y += 24;
 
       // Period label
       if (periodLabel) {
         doc.setFontSize(10);
-        doc.setFont(undefined, 'normal');
+        doc.setFont('helvetica', 'normal');
         doc.text(periodLabel, pageWidth / 2, y, { align: 'center' });
         y += 14;
       }
 
       // Document title (centered, formal)
       doc.setFontSize(12);
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.text('FACULTY EVALUATION REPORT', pageWidth / 2, y, { align: 'center' });
       y += 22;
 
@@ -578,11 +679,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
 
       // === APPLICANT INFORMATION SECTION ===
       doc.setFontSize(11);
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.text('APPLICANT INFORMATION', margin, y);
       y += 16;
 
-      doc.setFont(undefined, 'normal');
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
       // Fix name casing: capitalize first letter of last name, keep first name as-is
       const lastNameProper = lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase();
@@ -595,14 +696,13 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       y += 22;
 
       // === SCORING SECTION ===
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.text('EVALUATION SCORES BY AREA', margin, y);
       y += 18;
 
       // Table setup
       const tableLeft = margin;
-      const tableTop = y;
       const tableWidth = contentWidth;
       const colAreaWidth = tableWidth * 0.55;
       const colScoreWidth = tableWidth * 0.15;
@@ -617,7 +717,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       doc.setLineWidth(1);
       doc.rect(tableLeft, y, tableWidth, rowHeight);
 
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       const headerVerticalCenter = y + rowHeight / 2 + 1.5;
       doc.text('Area', tableLeft + cellPadding, headerVerticalCenter, { align: 'left' });
@@ -634,14 +734,14 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       y += rowHeight;
 
       // Draw area rows with proper table structure
-      doc.setFont(undefined, 'normal');
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(9.5);
 
       areas.forEach((area) => {
         const areaTitle = area.title || 'Area';
         const score = Number(area.current || 0);
         const max = Number(area.max || 0);
-        const excess = Math.max(0, score - max);
+        const excess = Number(area.excess || 0);
 
         // Split area title
         const titleLines = doc.splitTextToSize(areaTitle, colAreaWidth - 2 * cellPadding);
@@ -672,7 +772,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       doc.setLineWidth(1.5);
       doc.rect(tableLeft, y, tableWidth, rowHeight);
 
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(10.5);
       const totalScore = areas.reduce((s, a) => s + Number(a.current || 0), 0);
       const totalVerticalCenter = y + rowHeight / 2 + 1.5;
@@ -682,12 +782,12 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       y += rowHeight + 20;
 
       // === QUALIFICATIONS SECTION ===
-      doc.setFont(undefined, 'bold');
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.text('QUALIFICATION SUMMARY', margin, y);
       y += 18;
 
-      doc.setFont(undefined, 'normal');
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
       const quals = [
         { label: 'Experience', value: qualExperience },
@@ -697,11 +797,11 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
         { label: 'Eligibility', value: qualEligibility },
       ];
 
-      quals.forEach(q => {
+      quals.forEach((q: { label: string; value: string }) => {
         const labelWidth = 130;
-        doc.setFont(undefined, 'bold');
+        doc.setFont('helvetica', 'bold');
         doc.text(`${q.label}:`, margin + 12, y);
-        doc.setFont(undefined, 'normal');
+        doc.setFont('helvetica', 'normal');
         const valueLines = doc.splitTextToSize(q.value, contentWidth - labelWidth - 30);
         doc.text(valueLines, margin + 12 + labelWidth, y);
         y += Math.max(13, valueLines.length * 13) + 8;
@@ -710,7 +810,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
       // === FOOTER ===
       y += 12;
       doc.setFontSize(8);
-      doc.setFont(undefined, 'normal');
+      doc.setFont('helvetica', 'normal');
       doc.setTextColor(100);
       doc.text('This report is officially issued and contains the evaluation scores for the faculty applicant.', pageWidth / 2, pageHeight - 14, { align: 'center' });
       doc.setTextColor(0);
@@ -883,7 +983,7 @@ const FacultyDetailModal = ({ faculty, onClose, onStatusUpdate }: FacultyDetailM
                     <div className="flex justify-between items-center cursor-pointer p-4 transition hover:bg-slate-50" onClick={() => toggleAreaAccordion(idx)}>
                       <div className="flex-1 pr-4 md:pr-6">
                         <p className="text-xs font-bold text-slate-700 leading-tight mb-1">{area.title}</p>
-                        <p className="text-[10px] text-slate-400 font-medium">Max: {area.max.toFixed(2)} pts <span className="text-yellow-500 ml-1">+0 excess</span></p>
+                        <p className="text-[10px] text-slate-400 font-medium">Max: {area.max.toFixed(2)} pts <span className="text-yellow-500 ml-1">+{Number(area.excess || 0).toFixed(2)} excess</span></p>
                       </div>
                       <div className="text-right flex items-center gap-3 shrink-0">
                         <span className="text-sm font-bold text-[#0a5e2f]">{area.current.toFixed(2)} pts</span>

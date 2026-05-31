@@ -1,0 +1,255 @@
+SHEET: Sheet1
+B1=AREA | C1=POINTS
+A2=I | B2=EDUCATIONAL QUALIFICATIONS | C2=85.0
+B3=A. Associate Courses/Program (2 years) | C3=25.0
+B4=B. Bachelor’s Degree (4 years to 5 years) | C4=45.0
+B5=C. Diploma course (above Bachelor’s Degree) | C5=46.0
+B6=D. Master's Program
+B7=D.1 MA/MS Units (6-12 units) | C7=47.0
+B8=D.2 MA/MS Units (13-18 units) | C8=49.0
+B9=D.3 MA/MS Units (19-24 units) | C9=51.0
+B10=D.4 MA/MS Units (25-30 units) | C10=53.0
+B11=D.5 MA/MS Units (31-up units) | C11=55.0
+B12=E. Comprehensive Exam Passed | C12=58.0
+B13=F. Master’s Degree (non-thesis) | C13=60.0
+B14=G. Thesis Defended | C14=62.0
+B15=H. Master’s Degree (Additional 2 points for another MA/MS degree) | C15=65.0
+B16=I. LLB and MD (Passed the bar and board exam) | C16=65.0
+B17=J.Doctoral Program
+B18=J.1 Doctoral Units (9-18 units) | C18=67.0
+B19=J.2 Doctoral Units (19-27 units) | C19=69.0
+B20=J.3 Doctoral Units (28-36 units) | C20=71.0
+B21=J.4 Doctoral Units (37-45 units) | C21=73.0
+B22=J.5 Doctoral Units (46-up units) | C22=75.0
+B23=K. Comprehensive Exam Passed | C23=80.0
+B24=L. Doctorate Degree (Additional 5 points for another Ed.D/Ph.D degree) | C24=85.0
+A25=II | B25=RESEARCH AND PUBLICATIONS | C25=20.0
+B26=A. Publication (Max. 10 points)
+B27=A.1 Published Books | C27=2.0
+B28=A.1.1 No. of Authors
+B29=A.1.1.1 Single author | C29=1.25
+B30=A.1.1.2 Co-authored | C30=0.75
+B31=A.1.1.3 Three (3) or more authors | C31=0.25
+B32=A.1.2 Designation of Writer
+B33=A.1.2.1 Lead Author | C33=0.75
+B34=A.1.2.2 Co-author | C34=0.5
+B35=A.1.3 Level
+B36=A.1.3.1 International | C36=1.0
+B37=A.1.3.2 National/Regional | C37=0.75
+B38=A.1.3.3 Institutional | C38=0.5
+B39=A.2 Published Research | C39=2.0
+B40=A.2.1 No. of Authors
+B41=A.2.1.1 Single author | C41=1.25
+B42=A.2.1.2 Co-authored | C42=0.75
+B43=A.2.1.3 Three (3) or more authors | C43=0.25
+B44=A.2.2 Designation of Writer
+B45=A.2.2.1 Lead Author | C45=0.75
+B46=A.2.2.2 Co-author | C46=0.5
+B47=A.2.3 Level
+B48=A.2.3.1 International | C48=1.0
+B49=A.2.3.2 National/Regional | C49=0.75
+B50=A.2.3.3 Institutional | C50=0.5
+B51=A.3 Monograph | C51=1.0
+B52=A.3.1 No. of Authors
+B53=A.3.1.1 Single author | C53=0.75
+B54=A.3.1.2 Co-authored | C54=0.5
+B55=A.3.1.3 Three (3) or more authors | C55=0.25
+B56=A.3.2 Designation of Writer
+B57=A.3.2.1 Lead Author | C57=0.5
+B58=A.3.2.2 Co-author | C58=0.25
+B59=A.3.3 Level
+B60=A.3.3.1 International | C60=0.75
+B61=A.3.3.2 National/Regional | C61=0.5
+B62=A.3.3.3 Institutional | C62=0.25
+B63=A.4 Published Thesis/Dissertation (Other point systems do not apply to these works. For single authorship only.) | C63=3.0
+B64=B. Research (Max. 10 points)
+B65=B.1 Institutional materials (in the form of books, textbooks, manuals,worksheets,and worktext) | C65=1.5
+B66=B.1.1 No. of Researchers
+B67=B.1.1.1 Single | C67=1.25
+B68=B.1.1.2 Two (2) or more researchers | C68=0.75
+B69=B.1.2 Designation of Researchers
+B70=B.1.2.1 Lead researcher | C70=0.75
+B71=B.1.2.2 Co-researcher | C71=0.5
+B72=B.1.3 Level
+B73=B.1.3.1 External | C73=0.5
+B74=B.1.3.2 Institutional | C74=0.25
+B75=B.2 Unpublished Research | C75=0.75
+B76=B.2.1 No. of Researchers
+B77=B.1.1.1 Single | C77=0.75
+B78=B.1.1.2 Two (2) or more researchers | C78=0.5
+B79=B.2.2 Designation of Researchers
+B80=B.1.2.1 Lead researcher | C80=0.5
+B81=B.1.2.2 Co-researcher | C81=0.25
+B82=B.2.3 Level
+B83=B.1.3.1 External | C83=0.5
+B84=B.1.3.2 Institutional | C84=0.25
+B85=B.3 Development of a complete set of instructional materials (in the form of transparencies, modules, video production,discs,multimedia instructional materials,etc.)-Other point systems do not apply to these works. For single authorship only. | C85=1.25
+B86=C. Editor Professional Journal (adds-on only, maximum of 5 pts.)
+B87=C.1 Editor-in-chief/Honorary Editor in Chief | C87=0.75
+B88=C.1.1 Level
+B89=C.1.1.1 External | C89=0.75
+B90=C.1.1.2 Institutional | C90=0.5
+B91=C.1.2 Type of Publication
+B92=C.1.2.1 Refereed | C92=1.25
+B93=C.1.2.2 Non-refereed | C93=0.75
+B94=C.2 Member of the Editorial Board | C94=0.5
+B95=C.2.1 Level
+B96=C.2.1.1 External | C96=0.75
+B97=C.2.1.2 Institutional | C97=0.5
+B98=C.2.2 Type of Publication
+B99=C.2.2.1 Refereed | C99=1.25
+B100=C.2.2.2 Non-refereed | C100=0.75
+B101=D. Creative Works (adds-on only, maximum of 5 pts.)
+B102=D.1 Poems, newspaper/magazine article, illustration, maps, plans, sketches, charts, three dimensional works relative to geography, topography, architecture or science, drawings, plastic works of a scientific or technical character, photography works, lantern slides, pictorial illustrations and advertisements. | C102=0.75
+B103=D.1.1 Level
+B104=D.1.1.1 International | C104=1.75
+B105=D.1.1.2 National | C105=0.75
+B106=D.1.1.3 Institutional | C106=0.5
+B107=D.1.2 No.of Authors
+B108=D.1.2.1 Single | C108=1.25
+B109=D.1.2.2 Co-authored | C109=0.75
+B110=D.1.2.3 Three(3) or more | C110=0.5
+B111=D.2 Short stories, Lectures, Sermons, Addresses, Letters | C111=1.25
+B112=D.2.1 Level
+B113=D.2.1.1 International | C113=1.5
+B114=D.2.1.2 National | C114=0.75
+B115=D.2.1.3 Institutional | C115=0.5
+B116=D.2.2 No.of Authors
+B117=D.2.2.1 Single | C117=1.25
+B118=D.2.2.2 Co-authored | C118=0.75
+B119=D.2.2.3 Three(3) or more | C119=0.5
+B120=D.3 Computer programs, painting, novels (non-fiction), musical compositions, original ornamental design or models for manufacture, audio-visual works, cinematography works | C120=1.5
+B121=D.3.1 Level
+B122=D.3.1.1 International | C122=1.5
+B123=D.3.1.2 National | C123=0.75
+B124=D.3.1.3 Institutional | C124=0.5
+B125=D.3.2 No.of Authors
+B126=D.3.2.1 Single | C126=1.0
+B127=D.3.2.2 Co-authored | C127=0.75
+B128=D.3.2.3 Three(3) or more | C128=0.5
+B129=D.4 Poster/Oral presentation | C129=1.0
+B130=D.4.1 Level
+B131=D.4.1.1 International | C131=1.5
+B132=D.4.1.2 National | C132=1.0
+B133=D.4.1.3 Institutional | C133=0.25
+B134=D.4.2 No.of Authors
+B135=D.4.2.1 Single | C135=1.0
+B136=D.4.2.2 Co-authored | C136=0.75
+B137=D.4.2.3 Three(3) or more | C137=0.5
+A138=III | B138=TEACHING EXPERIENCE AND PROFESSIONAL SERVICES | C138=20.0
+B139=A. For every year of teaching in Gordon College as:
+B140=A.1 Full time | C140=1.0
+B141=A.2 Part time | C141=0.25
+B142=B. For every year of teaching experience in other schools as full time
+B143=B.1 Full time | C143=0.5
+B144=B.2 Part time | C144=0.25
+B145=C. For every year of administrative designation as (at least one year of service in assigned designation )
+B146=C.1 President
+B147=C.1.1 Within Gordon College | C147=3.0
+B148=C.1.2 Outside Gordon College | C148=1.5
+B149=C.2 Vice President
+B150=C.2.1 Within Gordon College | C150=2.5
+B151=C.2.2 Outside Gordon College | C151=1.25
+B152=C.3 Dean/Head/Principal/Director
+B153=C.3.1 Within Gordon College | C153=2.0
+B154=C.3.2 Outside Gordon College | C154=1.0
+B155=C.4 Program Coordinator
+B156=C.4.1 Within Gordon College | C156=1.0
+B157=C.4.2 Outside Gordon College | C157=0.5
+B158=C.5 Area/Subject Coordinator
+B159=C.5.1 Within Gordon College | C159=0.5
+B160=C.5.2 Outside Gordon College | C160=0.25
+B161=D. For every year of Industry experience aligned to the field of specialization as full time | C161=0.25
+A162=IV | B162=PERFORMANCE EVALUATION | C162=10.0
+B163=Rating Interpretation
+B164=1.00-1.39 Poor | C164=1.0
+B165=1.40-1.79 Poor | C165=2.0
+B166=1.80-2.19 Fair | C166=3.0
+B167=2.20-2.59 Fair | C167=4.0
+B168=2.60-2.99 Satisfactory | C168=5.0
+B169=3.00-3.39 Satisfactory | C169=6.0
+B170=3.40-3.79 Satisfactory | C170=7.0
+B171=3.80-4.19 Very Satisfactory | C171=8.0
+B172=4.20-4.59 Very Satisfactory | C172=9.0
+B173=4.60-5.00 Outstanding | C173=10.0
+A174=V | B174=TRAINING AND SEMINARS | C174=10.0
+B175=A. For every training course:
+B176=A.1 International | C176=5.0
+B177=A.2 National | C177=4.0
+B178=A.3 Regional | C178=3.0
+B179=A.4 Local | C179=2.0
+B180=A.5 Institutional | C180=1.0
+B181=B. For participation in conferences, seminars and workshops:
+B182=B.1 International | C182=5.0
+B183=B.2 National | C183=4.0
+B184=B.3 Regional | C184=3.0
+B185=B.4 Local | C185=2.0
+B186=B.5 Institutional | C186=1.0
+A187=VI | B187=EXPERT SERVICES RENDERED | C187=20.0
+B188=A. For serving a short-term consultancy/expert in an activity of an educational, technological, professional, scientific or cultural nature (foreign or local) sponsored by the government or other agencies
+B189=A.1 International | C189=5.0
+B190=A.2 National | C190=4.0
+B191=A.3 Regional | C191=3.0
+B192=A.4 Local | C192=2.0
+B193=A.5 Institutional | C193=1.0
+B194=B. For services rendered as coordinator, lecturer, resource person or guest speaker in conference, workshops, and/or training courses
+B195=B.1 International | C195=5.0
+B196=B.2 National | C196=4.0
+B197=B.3 Regional | C197=3.0
+B198=B.4 Local | C198=2.0
+B199=B.5 Institutional | C199=1.0
+B200=C. For expert services as adviser in doctoral dissertation, masteral and undergraduate theses (maximum of 10 points)
+B201=C.1 Doctoral Dissertation | C201=1.0
+B202=C.2 Masteral Thesis | C202=0.5
+B203=C.3 Undergraduate Thesis (conducted outside Gordon College) | C203=0.25
+B204=D. For certified services as reviewer/examiner in the Professional Regulatory Commission (PRC) or the Civil Service Commission | C204=1.0
+B205=E. For expert services in accreditation work as member of the Board of Directors, member of the Technical Committee or Consultant Group | C205=1.0
+B206=F. For every expert service in trade skill certification | C206=1.0
+B207=G. For every year of service in curricular/extra-curricular and co-curricular activities | C207=1.0
+A208=VII | B208=INVOLVEMENT IN PROFESSIONAL ORGANIZATIONS | C208=10.0
+B209=A. International
+B210=A.1 Officer | C210=5.0
+B211=A.2 Member | C211=2.0
+B212=B. National
+B213=B.1 Officer | C213=4.0
+B214=B.2 Member | C214=2.0
+B215=C. Regional
+B216=C.1 Officer | C216=3.0
+B217=C.2 Member | C217=1.0
+B218=INVOLVEMENT in CIVIC ORGANIZATION
+B219=A. Officer | C219=1.0
+B220=B. Member | C220=0.5
+B221=SCHOLARSHIP/FELLOWSHIP
+B222=A. International
+B223=A.1 Doctorate | C223=5.0
+B224=A.2 Masteral | C224=4.0
+B225=A.3 Non-degree | C225=3.0
+B226=B. National/Regional
+B227=B.1 Doctorate | C227=3.0
+B228=B.2 Masteral | C228=2.0
+B229=B.3 Non-degree | C229=1.0
+B230=C. Local/Institutional
+B231=C.1 Doctorate | C231=2.0
+B232=C.2 Masteral | C232=1.0
+A233=VIII | B233=AWARDS OF DISTINCTION RECEIVED IN RECOGNITION OF ACHIEVEMENTS IN RELEVANT AREAS OF SPECIALIZATION/ PROFESSION AND/OR ASSIGNMENT OF FACULTY CONCERNED | C233=10.0
+B234=A. International | C234=5.0
+B235=B. National | C235=4.0
+B236=C. Regional | C236=3.0
+B237=D. Local | C237=2.0
+B238=E. Institutional | C238=1.0
+A239=IX | B239=COMMUNITY OUTREACH | C239=5.0
+B240=A. For every participation in service-oriented projects in the community
+B241=A.1 International | C241=5.0
+B242=A.2 National | C242=4.0
+B243=A.3 Regional/Local/Institutional (1 pt. for every activity) | C243=3.0
+A244=X | B244=PROFESSIONAL EXAMINATION (PRC,CSC AND TESDA) | C244=10.0
+B245=A. For every relevant licensure and other professional examinations passed
+B246=A.1 Accounting, Customs Broker, Engineering, Nursing, Midwifery, Medicine, Law ,Teacher’s Board, etc. | C246=10.0
+B247=A.2 Civil Service Eligibility
+B248=A.2.1 Career Executive Service Officer (CESO) | C248=7.0
+B249=A.2.2. Professional License | C249=5.0
+B250=A.2.3 Sub-Professional Licence | C250=3.0
+B251=A.3 Other Trade Certificates (NC II onwards) | C251=3.0
+B252=A.4 Specialty Certification
+B253=A.4.1 International/Local | C253=3.0
+B254=TOTAL POINTS | C254=200.0

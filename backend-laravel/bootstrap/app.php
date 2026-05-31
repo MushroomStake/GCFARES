@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->alias([
+            'api.token' => \App\Http\Middleware\ApiToken::class,
             'role' => \App\Http\Middleware\CheckRole::class,
         ]);
     })

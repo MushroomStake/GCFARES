@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
+import { laravelApiClient as supabase } from '../laravelApiClient';
 import { Loader2 } from 'lucide-react';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -15,14 +15,23 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     const checkSession = async (user: any) => {
       if (user) {
         if (isMounted) setIsAuthenticated(true);
+
+        const userEmail = user?.email || user?.domain_email || null;
+        if (!userEmail) {
+          if (isMounted) {
+            setIsFirstLogin(false);
+            setLoading(false);
+          }
+          return;
+        }
         
         try {
           // Fetch the user's record from the database
           const { data, error } = await supabase
   .from('users')
   .select('is_first_login')
-  .eq('domain_email', user.email) // <-- Change this line to use email
-  .single();
+  .eq('domain_email', userEmail)
+  .maybeSingle();
 
           if (error) {
             console.error("Error fetching user data:", error);

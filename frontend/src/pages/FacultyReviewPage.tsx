@@ -7,7 +7,7 @@ import {
   Eye,
   Loader2
 } from 'lucide-react';
-import { supabase } from '../supabaseClient'; 
+import { laravelApiClient as supabase } from '../laravelApiClient'; 
 import FacultyDetailModal from '../components/FacultyDetailModal';
 
 export interface Faculty {
@@ -259,7 +259,7 @@ const FacultyReviewPage = () => {
         let appsData = appsSnap || [];
 
         // Preload all submission-based scores for the full app list so list totals can match the modal
-        const appIds = appsData.map((app) => String(app.application_id)).filter(Boolean);
+        const appIds = appsData.map((app: any) => String(app.application_id)).filter(Boolean);
         let submissionScoreMap: Record<string, number> = {};
         if (appIds.length > 0) {
           const { data: submissionScores, error: submissionError } = await supabase
@@ -281,16 +281,16 @@ const FacultyReviewPage = () => {
         // DEBUG: print raw applications with key fields
         console.log('VPAA DEBUG: activeCycleId=', activeCycleId);
         console.log('VPAA DEBUG: raw applications count=', appsSnap?.length || 0);
-        (appsSnap || []).forEach((a, idx) => {
+        (appsSnap || []).forEach((a: any, idx: number) => {
           console.log(`VPAA DEBUG: app[${idx}] id=${a.application_id} cycle_id=${a.cycle_id} status=${a.status} hr_completed_at=${a.hr_completed_at}`);
         });
 
         // Only keep applications for the current active cycle.
         // If the cycle is new and contains no applications, do not fall back to older periods.
-        const filtered = appsData.filter((a) => Number(a.cycle_id) === Number(activeCycleId));
+        const filtered = appsData.filter((a: any) => Number(a.cycle_id) === Number(activeCycleId));
         console.log('VPAA DEBUG: same-cycle count=', filtered.length, 'total apps count=', appsData.length);
         appsData = filtered;
-        const facultyPromises = appsData.map(async (appData) => {
+        const facultyPromises = appsData.map(async (appData: any) => {
           let facultyName = "UNKNOWN FACULTY";
           let department = "Not specified";
           let currentPos = appData.current_rank_at_time || "Not specified";

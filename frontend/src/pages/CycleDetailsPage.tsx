@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, Search, Filter, CheckCircle2, User, Loader2, X } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { supabase } from '../supabaseClient'; 
+import { laravelApiClient as supabase } from '../laravelApiClient'; 
 import FacultyDetailModal from '../components/FacultyDetailModal'; 
 import { RANKING_RUBRICS } from '../../rankingRubrics';
 
@@ -110,16 +110,6 @@ const CycleDetailsPage = () => {
     return '';
   };
 
-  const getSemesterLabel = () => {
-    if (cycle.semester) return String(cycle.semester).trim();
-
-    const title = String(cycle.title || '');
-    const semesterMatch = title.match(/\b(?:1st|2nd|3rd|first|second|third|summer)\s+semester\b/i);
-    if (semesterMatch) return semesterMatch[0];
-
-    return '';
-  };
-
   const toCanonicalSemesterLabel = (value: unknown) => {
     const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
     if (!normalized) return '';
@@ -201,8 +191,7 @@ const CycleDetailsPage = () => {
             pendingCount++;
           }
 
-          // Supabase joins can sometimes return arrays instead of objects depending on constraints. 
-          // This safely handles both.
+          // The API may return a nested object or an array wrapper depending on the join shape.
           const userObj = Array.isArray(appData.users) ? appData.users[0] : appData.users;
           const user = userObj || {};
           
@@ -253,7 +242,7 @@ const CycleDetailsPage = () => {
         }
 
       } catch (error) {
-        console.error("Error fetching cycle details from Supabase:", error);
+        console.error("Error fetching cycle details from the Laravel API:", error);
       } finally {
         if (isMounted && !silent) setLoading(false);
       }
