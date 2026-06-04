@@ -9,6 +9,6 @@ Route::get('/', function () {
 Route::get('/api', function () {
     return response()->json([
         'status' => 'ok',
-        'message' => 'VPAA API is reachable.',
+        'message' => 'HR Admin API is reachable.',
     ]);
 });

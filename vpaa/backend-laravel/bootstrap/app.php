@@ -13,14 +13,16 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         
-        // This appends your AES-256-GCM layer to all API routes globally and automatically!
+        // Ensure CORS is handled globally for all requests
+        $middleware->append(\Illuminate\Http\Middleware\HandleCors::class);
+
+        // Your custom AES-256-GCM layer for API routes
         $middleware->api(append: [
             \App\Http\Middleware\EncryptPayload::class,
         ]);
 
         $middleware->alias([
             'api.token' => \App\Http\Middleware\ApiToken::class,
-            'role' => \App\Http\Middleware\CheckRole::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
