@@ -14,7 +14,7 @@ class EncryptPayload
 
     public function __construct()
     {
-        $this->key = env('API_ENCRYPTION_KEY');
+        $this->key = (string) env('API_ENCRYPTION_KEY');
     }
 
     /**
