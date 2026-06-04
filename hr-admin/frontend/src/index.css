@@ -1,0 +1,40 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+
+:root {
+	--green-dark: #134f2c;
+	--green-mid: #1a6b3c;
+	--green-btn: #228b4e;
+	--green-pale: #eef7f2;
+	--gold: #c9a84c;
+	--gold-pale: #fdf8ec;
+	--white: #ffffff;
+	--surface: #f8f7f4;
+	--text: #1a1a1a;
+	--text-mid: #3a4a3e;
+	--muted: #6b7c70;
+	--border: #dde5df;
+	--shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.04);
+	--shadow-lg: 0 8px 32px rgba(26, 107, 60, 0.12);
+	--red: #c0392b;
+	--blue: #2471a3;
+}
+
+html,
+body,
+#root {
+	min-height: 100%;
+	margin: 0;
+	font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
+	background: var(--surface);
+	color: var(--text);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.font-display {
+	font-family: 'Playfair Display', serif;
+}

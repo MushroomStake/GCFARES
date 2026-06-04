@@ -1,0 +1,63 @@
+/* ============================================
+   layout.css — Shared Layout Styles
+   Ensures uniform sidebar and main content area across all pages
+   ============================================ */
+
+/* ── Main Layout Structure ──────────────── */
+.app {
+  display: flex;
+  height: 100vh;
+  font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
+  position: relative;
+}
+
+.main {
+  flex: 1;
+  background: var(--surface);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  margin-left: 220px !important; /* Force override - match exact sidebar width */
+  min-height: 100vh;
+  width: calc(100vw - 220px) !important; /* Ensure no extra width */
+  box-sizing: border-box;
+}
+
+.content {
+  padding: 28px 32px;
+  flex: 1;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Page Title ─────────────────────────── */
+.page-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 20px;
+}
+
+/* ── Common Card Header ─────────────────── */
+.rk-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.rk-card-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rk-semester {
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: var(--gold-pale);
+  padding: 4px 12px;
+  border-radius: 6px;
+}

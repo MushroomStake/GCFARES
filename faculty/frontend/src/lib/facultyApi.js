@@ -1,0 +1,393 @@
+import { apiRequest, clearStoredApiToken, getStoredApiToken, setStoredApiToken } from "./apiClient.js";
+
+const SESSION_STORAGE_KEY = "faculty_session";
+const authListeners = new Set();
+let currentSession = readStoredSession();
+let lastVerifiedPassword = null;
+
+function readStoredSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSession(session) {
+  currentSession = session ?? null;
+
+  try {
+    if (currentSession) {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(currentSession));
+      if (currentSession.access_token) {
+        setStoredApiToken(currentSession.access_token);
+      }
+    } else {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      clearStoredApiToken();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function emitAuthStateChange(event, session) {
+  authListeners.forEach((listener) => {
+    try {
+      listener(event, session);
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+function createResult(data = null, error = null) {
+  return { data, error };
+}
+
+function parseRowsPayload(data) {
+  if (Array.isArray(data)) return data;
+  if (data === null || data === undefined) return [];
+  return [data];
+}
+
+function createQueryBuilder(table) {
+  const state = {
+    table,
+    operation: "select",
+    select: "*",
+    filters: [],
+    order: null,
+    limit: null,
+    offset: null,
+    single: false,
+    values: null,
+  };
+
+  const builder = {
+    select(columns = "*") {
+      state.select = columns;
+      return builder;
+    },
+    eq(column, value) { state.filters.push({ column, operator: "eq", value }); return builder; },
+    neq(column, value) { state.filters.push({ column, operator: "neq", value }); return builder; },
+    gt(column, value) { state.filters.push({ column, operator: "gt", value }); return builder; },
+    gte(column, value) { state.filters.push({ column, operator: "gte", value }); return builder; },
+    lt(column, value) { state.filters.push({ column, operator: "lt", value }); return builder; },
+    lte(column, value) { state.filters.push({ column, operator: "lte", value }); return builder; },
+    like(column, value) { state.filters.push({ column, operator: "like", value }); return builder; },
+    ilike(column, value) { state.filters.push({ column, operator: "ilike", value }); return builder; },
+    in(column, values) { state.filters.push({ column, operator: "in", value: values }); return builder; },
+    is(column, value) { state.filters.push({ column, operator: "is", value }); return builder; },
+    order(column, options = {}) {
+      state.order = { column, direction: options.ascending === false ? "desc" : "asc" };
+      return builder;
+    },
+    limit(value) { state.limit = value; return builder; },
+    offset(value) { state.offset = value; return builder; },
+    range(from, to) { state.offset = from; state.limit = Math.max(0, to - from + 1); return builder; },
+    insert(values) { state.operation = "insert"; state.values = values; return builder; },
+    update(values) { state.operation = "update"; state.values = values; return builder; },
+    delete() { state.operation = "delete"; return builder; },
+    maybeSingle() {
+      state.single = true;
+      return executeDatabaseOperation(state).then((result) => {
+        const rows = parseRowsPayload(result.data);
+        return createResult(rows[0] ?? null, result.error);
+      });
+    },
+    single() {
+      state.single = true;
+      return executeDatabaseOperation(state).then((result) => {
+        const rows = parseRowsPayload(result.data);
+        if (result.error) return result;
+        if (rows.length === 0) return createResult(null, new Error("No rows returned"));
+        return createResult(rows[0], null);
+      });
+    },
+    then(resolve, reject) {
+      return executeDatabaseOperation(state).then(resolve, reject);
+    },
+  };
+
+  return builder;
+}
+
+async function executeDatabaseOperation(payload) {
+  const table = String(payload?.table || "").trim();
+  const operation = String(payload?.operation || "select").toLowerCase();
+  const isMutation = operation === "insert" || operation === "update" || operation === "delete";
+
+  if (table === "area_submissions" && isMutation) {
+    const error = new Error(
+      "Legacy mutation blocked: use facultyApi.createSubmission/updateSubmission/deleteSubmission for area_submissions.",
+    );
+    console.error("executeDatabaseOperation blocked", { table, operation, payload, error });
+    return createResult(null, error);
+  }
+
+  try {
+    const response = await apiRequest("/database/query", {
+      method: "POST",
+      body: payload,
+    });
+
+    return createResult(response?.data ?? null, null);
+  } catch (error) {
+    return createResult(null, error);
+  }
+}
+
+async function request(path, options = {}) {
+  try {
+    const response = await apiRequest(path, options);
+    return createResult(response ?? null, null);
+  } catch (error) {
+    return createResult(null, error);
+  }
+}
+
+export const facultyApi = {
+  from(table) {
+    return createQueryBuilder(table);
+  },
+
+  auth: {
+    async getSession() {
+      const storedSession = currentSession ?? readStoredSession();
+      const token = storedSession?.access_token || getStoredApiToken();
+
+      if (!token) {
+        return createResult({ session: null, user: null }, null);
+      }
+
+      try {
+        const response = await apiRequest("/auth/validate", { method: "GET" });
+        const user = response?.user ?? null;
+        const session = user ? { access_token: token, user } : null;
+        writeStoredSession(session);
+        return createResult({ session, user }, null);
+      } catch (error) {
+        writeStoredSession(null);
+        return createResult({ session: null, user: null }, error);
+      }
+    },
+
+    async getUser() {
+      const sessionResult = await this.getSession();
+      return createResult({ user: sessionResult.data?.session?.user ?? null }, sessionResult.error);
+    },
+
+    async signInWithPassword({ email, password }) {
+      try {
+        const response = await apiRequest("/auth/login", {
+          method: "POST",
+          body: { email, password },
+        });
+
+        const session = response?.token ? { access_token: response.token, user: response.user ?? null } : null;
+        lastVerifiedPassword = password;
+        writeStoredSession(session);
+        emitAuthStateChange("SIGNED_IN", session);
+
+        return createResult({ session, user: response?.user ?? null }, null);
+      } catch (error) {
+        return createResult(null, error);
+      }
+    },
+
+    async updateUser({ password, profile }) {
+      try {
+        if (password) {
+          const response = await apiRequest("/auth/change-password", {
+            method: "POST",
+            body: { current_password: lastVerifiedPassword, new_password: password },
+          });
+
+          lastVerifiedPassword = null;
+          if (response?.user && currentSession?.access_token) {
+            const nextSession = { ...currentSession, user: response.user };
+            writeStoredSession(nextSession);
+            emitAuthStateChange("USER_UPDATED", nextSession);
+          }
+
+          return createResult({ user: response?.user ?? null }, null);
+        }
+
+        if (profile) {
+          const response = await apiRequest("/faculty/me", {
+            method: "PATCH",
+            body: profile,
+          });
+
+          if (response?.user && currentSession?.access_token) {
+            const nextSession = { ...currentSession, user: response.user };
+            writeStoredSession(nextSession);
+            emitAuthStateChange("USER_UPDATED", nextSession);
+          }
+
+          return createResult({ user: response?.user ?? null, profile: response?.profile ?? null }, null);
+        }
+
+        return createResult(null, new Error("Nothing to update."));
+      } catch (error) {
+        return createResult(null, error);
+      }
+    },
+
+    async signOut() {
+      const token = currentSession?.access_token || getStoredApiToken();
+
+      if (token) {
+        try {
+          await apiRequest("/auth/logout", { method: "POST", body: {} });
+        } catch {
+          // ignore logout cleanup failures
+        }
+      }
+
+      lastVerifiedPassword = null;
+      writeStoredSession(null);
+      emitAuthStateChange("SIGNED_OUT", null);
+      return createResult({}, null);
+    },
+
+    onAuthStateChange(callback) {
+      authListeners.add(callback);
+      return {
+        data: {
+          subscription: {
+            unsubscribe() {
+              authListeners.delete(callback);
+            },
+          },
+        },
+      };
+    },
+  },
+
+  async bootstrap() {
+    return request("/faculty/bootstrap", { method: "GET" });
+  },
+
+  async getProfile() {
+    return request("/faculty/me", { method: "GET" });
+  },
+
+  async updateProfile(profile) {
+    return request("/faculty/me", { method: "PATCH", body: profile });
+  },
+
+  async listCycles() {
+    return request("/faculty/cycles", { method: "GET" });
+  },
+
+  async listAreas() {
+    return request("/faculty/areas", { method: "GET" });
+  },
+
+  async listPositions() {
+    return request("/faculty/positions", { method: "GET" });
+  },
+
+  async listNotifications(limit = 80) {
+    return request(`/faculty/notifications?limit=${encodeURIComponent(String(limit))}`, { method: "GET" });
+  },
+
+  async markNotificationRead(id) {
+    return request(`/faculty/notifications/${encodeURIComponent(String(id))}`, { method: "PATCH", body: {} });
+  },
+
+  async listApplications(params = {}) {
+    const search = new URLSearchParams();
+    if (params.faculty_id != null) search.set("faculty_id", String(params.faculty_id));
+    if (params.cycle_id != null) search.set("cycle_id", String(params.cycle_id));
+    if (params.limit != null) search.set("limit", String(params.limit));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request(`/faculty/applications${suffix}`, { method: "GET" });
+  },
+
+  async createApplication(payload) {
+    return request("/faculty/applications", { method: "POST", body: payload });
+  },
+
+  async updateApplication(applicationId, payload) {
+    return request(`/faculty/applications/${encodeURIComponent(String(applicationId))}`, { method: "PATCH", body: payload });
+  },
+
+  async listSubmissions(params = {}) {
+    const search = new URLSearchParams();
+    if (params.application_id != null) search.set("application_id", String(params.application_id));
+    if (params.faculty_id != null) search.set("faculty_id", String(params.faculty_id));
+    if (params.user_id != null) search.set("user_id", String(params.user_id));
+    if (params.cycle_id != null) search.set("cycle_id", String(params.cycle_id));
+    if (params.part_id != null) search.set("part_id", String(params.part_id));
+    if (params.limit != null) search.set("limit", String(params.limit));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request(`/faculty/submissions${suffix}`, { method: "GET" });
+  },
+
+  async createSubmission(payload) {
+    return request("/faculty/submissions", { method: "POST", body: payload });
+  },
+
+  async updateSubmission(submissionId, payload) {
+    return request(`/faculty/submissions/${encodeURIComponent(String(submissionId))}`, { method: "PATCH", body: payload });
+  },
+
+  async deleteSubmission(submissionId) {
+    return request(`/faculty/submissions/${encodeURIComponent(String(submissionId))}`, { method: "DELETE", body: {} });
+  },
+
+  async listTemplates(params = {}) {
+    const search = new URLSearchParams();
+    if (params.area_id != null) search.set("area_id", String(params.area_id));
+    if (params.part_id != null) search.set("part_id", String(params.part_id));
+    if (params.limit != null) search.set("limit", String(params.limit));
+    const suffix = search.toString() ? `?${search.toString()}` : "";
+    return request(`/faculty/templates${suffix}`, { method: "GET" });
+  },
+
+  storage: {
+    from(bucket) {
+      return {
+        async upload(path, file, options = {}) {
+          const formData = new FormData();
+          formData.append("bucket", bucket);
+          formData.append("path", path);
+          formData.append("file", file);
+          formData.append("upsert", String(Boolean(options.upsert)));
+
+          try {
+            const response = await apiRequest("/storage/upload", { method: "POST", body: formData });
+            return createResult(response?.data ?? null, null);
+          } catch (error) {
+            return createResult(null, error);
+          }
+        },
+
+        async createSignedUrl(path, expiresIn = 3600) {
+          try {
+            const response = await apiRequest("/storage/signed-url", {
+              method: "POST",
+              body: { bucket, path, expires_in: expiresIn },
+            });
+
+            return createResult(response?.data ?? null, null);
+          } catch (error) {
+            return createResult(null, error);
+          }
+        },
+      };
+    },
+  },
+
+  channel() {
+    return { on() { return this; }, subscribe() { return this; } };
+  },
+
+  removeChannel() {
+    return null;
+  },
+};

@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Existing rule for ranking cycles
+    match /ranking_cycles/{cycleId} {
+      allow read: if true; 
+      allow write: if request.auth != null; 
+    }
+    
+    // 2. Allow reading the users collection to populate the faculty list
+    match /users/{userId} {
+      allow read: if true; 
+      allow write: if request.auth != null;
+    }
+
+    // 3. Applications and their nested Area Submissions
+    match /applications/{applicationId} {
+      allow read: if true; 
+      allow write: if request.auth != null;
+
+      match /area_submissions/{submissionId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // Allow access to activity_logs! 
+    match /activity_logs/{logId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // 4. Faculty collection access
+    match /faculty/{facultyId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // 5. Areas collection access (for ranking criteria)
+    match /areas/{areaId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // 6. Departments collection access
+    match /departments/{departmentId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // 7. Positions collection access (for target positions)
+    match /positions/{positionId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // 8. Default rule for everything else: keep it locked down
+    // (Always keep this at the very bottom!)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+  }
+}

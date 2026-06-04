@@ -1,0 +1,215 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #1a6b3c;
+  --color-primary-dark: #134f2c;
+  --color-primary-light: #228b4e;
+  --color-accent: #c9a84c;
+  --color-accent-dark: #a88937;
+  --color-surface: #f8f7f4;
+  --color-sidebar: #134f2c;
+  --color-text-dark: #1a1a1a;
+  --color-text-mid: #3a4a3e;
+  --color-text-muted: #6b7c70;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply antialiased text-text-dark bg-surface;
+    font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-display {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl;
+  }
+  
+  .btn-primary {
+    @apply px-6 py-3 bg-primary text-white rounded-xl font-semibold transition-all hover:bg-primary-dark active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm;
+  }
+}
+
+.fp-left-shell {
+  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 58%, #22704a 100%);
+}
+
+.fp-left-shell::before,
+.fp-left-shell::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: fpFloat 10s ease-in-out infinite;
+}
+
+.fp-left-shell::before {
+  top: -88px;
+  right: -88px;
+  width: 280px;
+  height: 280px;
+  border: 1.5px solid rgba(255, 255, 255, 0.07);
+}
+
+.fp-left-shell::after {
+  bottom: -70px;
+  left: -70px;
+  width: 220px;
+  height: 220px;
+  border: 1.5px solid rgba(255, 255, 255, 0.06);
+}
+
+.fp-blob {
+  position: absolute;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  filter: blur(1px);
+  animation: fpBlob 12s ease-in-out infinite;
+}
+
+.fp-blob-a {
+  top: 4%;
+  right: -4%;
+  width: 340px;
+  height: 340px;
+}
+
+.fp-blob-b {
+  bottom: -14%;
+  left: -8%;
+  width: 240px;
+  height: 240px;
+  animation-delay: -3s;
+}
+
+.fp-brand-block {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 34px;
+}
+
+.fp-brand-badge {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.fp-brand-logo {
+  width: 62px;
+  height: 62px;
+  object-fit: contain;
+}
+
+.fp-brand-block h1 {
+  margin: 0;
+  font-family: 'Playfair Display', serif;
+  font-size: 1.85rem;
+  font-weight: 600;
+  line-height: 1.05;
+  color: #fff;
+}
+
+.fp-brand-block p {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.fp-copy-block section {
+  position: relative;
+}
+
+.fp-copy-kicker-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.fp-copy-rule {
+  width: 32px;
+  height: 2px;
+  background: var(--color-accent);
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.fp-copy-kicker-row h2 {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.fp-copy-block p,
+.fp-copy-block li {
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 300;
+  line-height: 1.7;
+}
+
+.fp-copy-block ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.fp-copy-block li {
+  position: relative;
+  padding-left: 1.3rem;
+  margin-bottom: 0.45rem;
+}
+
+.fp-copy-block li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--color-accent);
+}
+
+.fp-auth-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfb 100%);
+  border-radius: 30px;
+  box-shadow: 0 24px 70px rgba(26, 107, 60, 0.10);
+}
+
+@keyframes fpFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(10px, -12px, 0) scale(1.03); }
+}
+
+@keyframes fpBlob {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-16px, 12px, 0) scale(1.05); }
+}

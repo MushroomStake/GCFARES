@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Testing Report Dashboard</title>
+
+  <style>
+    body{
+      font-family: Arial, sans-serif;
+      background:#f4f6f8;
+      margin:0;
+      padding:0;
+    }
+
+    header{
+      background:#24292e;
+      color:white;
+      padding:20px;
+      text-align:center;
+    }
+
+    .container{
+      padding:40px;
+      max-width:900px;
+      margin:auto;
+    }
+
+    .card{
+      background:white;
+      padding:25px;
+      border-radius:8px;
+      box-shadow:0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom:20px;
+    }
+
+    .btn{
+      display:inline-block;
+      padding:12px 20px;
+      background:#2ea44f;
+      color:white;
+      text-decoration:none;
+      border-radius:6px;
+      font-weight:bold;
+    }
+
+    .btn:hover{
+      background:#22863a;
+    }
+
+    footer{
+      text-align:center;
+      padding:20px;
+      color:#777;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <h1>Automation Test Dashboard</h1>
+  <p>Testing Results Published via GitHub Pages</p>
+</header>
+
+<div class="container">
+
+  <div class="card">
+    <h2>Latest Test Execution</h2>
+    <p>View the latest automated test execution results.</p>
+
+    <a class="btn" href="test-output/index.html">
+      Open TestNG Report
+    </a>
+  </div>
+
+  <div class="card">
+    <h2>Project Info</h2>
+    <ul>
+      <li>Framework: Testing</li>
+      <li>Language: Javascript</li>
+      <li>CI/CD: GitHub Actions</li>
+    </ul>
+  </div>
+
+</div>
+
+<footer>
+  Generated for automation testing dashboard
+</footer>
+
+</body>
+</html>
