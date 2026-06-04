@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../components/sidenav';
 import '../styles/layout.css';
-import './userManagement.css';
+import './usermanagement.css';
 import EducationModal from './usermanagement/EducationModal';
 import EligibilityModal from './usermanagement/EligibilityModal';
 import DoctoralModal from './usermanagement/DoctoralModal';
