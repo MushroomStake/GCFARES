@@ -47,12 +47,17 @@ class User extends Authenticatable
 
     // 3. Cast your custom JSON attributes safely
     protected $casts = [
-        'doctorate' => 'array',
-        'educational_attainment_json' => 'array',
-        'eligibility_exams_json' => 'array',
-        'applying_for_json' => 'array',
-        'date_of_last_promotion' => 'date',
-        'last_promotion_date' => 'date',
+        'current_salary' => 'encrypted',
+        'nature_of_appointment' => 'encrypted',
+        'educational_attainment' => 'encrypted',
+        'eligibility_exams' => 'encrypted',
+        'applying_for' => 'encrypted',
+        'date_of_last_promotion' => 'encrypted',
+        'last_promotion_date' => 'encrypted',
+        'doctorate' => 'encrypted:array',
+        'educational_attainment_json' => 'encrypted:array',
+        'eligibility_exams_json' => 'encrypted:array',
+        'applying_for_json' => 'encrypted:array',
         'is_first_login' => 'boolean'
     ];
 

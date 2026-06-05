@@ -88,16 +88,6 @@ class FacultyPortalController extends Controller
             }
 
             $value = $payload[$field];
-            if ($field === 'applying_for_json' && is_array($value)) {
-                $update[$field] = json_encode(array_values($value), JSON_UNESCAPED_UNICODE);
-                continue;
-            }
-
-            if (in_array($field, ['doctorate', 'educational_attainment_json', 'eligibility_exams_json'], true) && is_array($value)) {
-                $update[$field] = json_encode($value, JSON_UNESCAPED_UNICODE);
-                continue;
-            }
-
             if (in_array($field, ['teaching_experience_years', 'industry_experience_years'], true) && $value !== null && $value !== '') {
                 $update[$field] = (int) $value;
                 continue;
@@ -115,7 +105,7 @@ class FacultyPortalController extends Controller
             return response()->json(['error' => 'No profile fields supplied.'], 422);
         }
 
-        DB::table('users')->where('user_id', $user->user_id)->update($update);
+        DB::table('users')->where('user_id', $user->user_id)->update($this->encryptUserPayload($update));
         $profile = $this->fetchProfileRow($user->user_id);
 
         return response()->json([
@@ -486,7 +476,9 @@ class FacultyPortalController extends Controller
 
     private function fetchProfileRow(int $userId): ?object
     {
-        return DB::table('users')->where('user_id', $userId)->first();
+        $profile = DB::table('users')->where('user_id', $userId)->first();
+
+        return $profile ? (object) $this->decryptUserRow($profile) : null;
     }
 
     private function fetchLatestApplicationForFaculty(int $facultyId, ?int $cycleId): ?object
@@ -499,9 +491,9 @@ class FacultyPortalController extends Controller
         return $query->orderByDesc('created_at')->first();
     }
 
-    private function normalizeUser(object $user): array
+    private function normalizeUser(object|array $user): array
     {
-        $applyingFor = $user->applying_for_json ?? $user->applying_for ?? null;
+        $applyingFor = $this->userValue($user, 'applying_for_json') ?? $this->userValue($user, 'applying_for') ?? null;
         if (is_string($applyingFor)) {
             $decoded = json_decode($applyingFor, true);
             if (json_last_error() === JSON_ERROR_NONE) {
@@ -510,27 +502,31 @@ class FacultyPortalController extends Controller
         }
 
         return [
-            'id' => $user->user_id ?? null,
-            'user_id' => $user->user_id ?? null,
-            'email' => $user->domain_email ?? $user->email ?? null,
-            'domain_email' => $user->domain_email ?? $user->email ?? null,
-            'name_last' => $user->name_last ?? null,
-            'name_first' => $user->name_first ?? null,
-            'name_middle' => $user->name_middle ?? null,
-            'role' => $user->role ?? null,
-            'department_id' => $user->department_id ?? null,
-            'current_rank' => $user->current_rank ?? null,
-            'current_salary' => $user->current_salary ?? null,
-            'nature_of_appointment' => $user->nature_of_appointment ?? null,
-            'educational_attainment' => $user->educational_attainment ?? null,
-            'eligibility_exams' => $user->eligibility_exams ?? null,
-            'teaching_experience_years' => $user->teaching_experience_years ?? null,
-            'industry_experience_years' => $user->industry_experience_years ?? null,
+            'id' => $this->userValue($user, 'user_id'),
+            'user_id' => $this->userValue($user, 'user_id'),
+            'email' => $this->userValue($user, 'domain_email') ?? $this->userValue($user, 'email'),
+            'domain_email' => $this->userValue($user, 'domain_email') ?? $this->userValue($user, 'email'),
+            'name_last' => $this->userValue($user, 'name_last'),
+            'name_first' => $this->userValue($user, 'name_first'),
+            'name_middle' => $this->userValue($user, 'name_middle'),
+            'role' => $this->userValue($user, 'role'),
+            'department_id' => $this->userValue($user, 'department_id'),
+            'current_rank' => $this->userValue($user, 'current_rank'),
+            'current_salary' => $this->userValue($user, 'current_salary'),
+            'nature_of_appointment' => $this->userValue($user, 'nature_of_appointment'),
+            'educational_attainment' => $this->userValue($user, 'educational_attainment'),
+            'eligibility_exams' => $this->userValue($user, 'eligibility_exams'),
+            'teaching_experience_years' => $this->userValue($user, 'teaching_experience_years'),
+            'industry_experience_years' => $this->userValue($user, 'industry_experience_years'),
             'applying_for' => $applyingFor,
-            'date_of_last_promotion' => $user->date_of_last_promotion ?? null,
-            'last_promotion_date' => $user->last_promotion_date ?? null,
-            'status' => $user->status ?? null,
-            'is_first_login' => (bool) ($user->is_first_login ?? false),
+            'doctorate' => $this->userValue($user, 'doctorate'),
+            'educational_attainment_json' => $this->userValue($user, 'educational_attainment_json'),
+            'eligibility_exams_json' => $this->userValue($user, 'eligibility_exams_json'),
+            'applying_for_json' => $this->userValue($user, 'applying_for_json'),
+            'date_of_last_promotion' => $this->userValue($user, 'date_of_last_promotion'),
+            'last_promotion_date' => $this->userValue($user, 'last_promotion_date'),
+            'status' => $this->userValue($user, 'status'),
+            'is_first_login' => (bool) ($this->userValue($user, 'is_first_login') ?? false),
         ];
     }
 

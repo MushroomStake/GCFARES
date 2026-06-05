@@ -64,7 +64,7 @@ class DatabaseController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $rows = $query->get()->map(fn ($row) => (array) $row)->values()->all();
+        $rows = $query->get()->map(fn ($row) => $table === 'users' ? $this->decryptUserRow($row) : (array) $row)->values()->all();
 
         if (!empty($payload['single'])) {
             return response()->json(['data' => $rows[0] ?? null]);
@@ -93,7 +93,9 @@ class DatabaseController extends Controller
                 $insertedRows = [];
 
                 foreach ($rows as $row) {
-                    $row = $this->sanitizeRow($row);
+                    $row = $table === 'users'
+                        ? $this->encryptUserPayload($this->sanitizeRow($row))
+                        : $this->sanitizeRow($row);
                     $query = DB::table($table);
 
                     if ($primaryKey && Schema::hasColumn($table, $primaryKey)) {
@@ -137,7 +139,7 @@ class DatabaseController extends Controller
             return response()->json(['error' => 'Invalid or unsupported column.'], 422);
         }
 
-        $updated = $query->update($this->sanitizeRow($values));
+        $updated = $query->update($table === 'users' ? $this->encryptUserPayload($this->sanitizeRow($values)) : $this->sanitizeRow($values));
 
         return response()->json(['data' => ['updated' => $updated]]);
     }

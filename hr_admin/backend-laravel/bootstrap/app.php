@@ -16,11 +16,6 @@ return Application::configure(basePath: dirname(__DIR__))
         // Ensure CORS is handled globally for all requests
         $middleware->append(\Illuminate\Http\Middleware\HandleCors::class);
 
-        // Your custom AES-256-GCM layer for API routes
-        $middleware->api(append: [
-            \App\Http\Middleware\EncryptPayload::class,
-        ]);
-
         $middleware->alias([
             'api.token' => \App\Http\Middleware\RequireApiToken::class,
         ]);

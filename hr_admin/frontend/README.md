@@ -26,7 +26,6 @@ Set the API base and encryption key used by the Laravel backend in `.env` or `.e
 
 ```env
 VITE_API_BASE_URL=http://127.0.0.1:8001/api
-VITE_API_ENCRYPTION_KEY=your-32-byte-key-here
 ```
 
 Restart `npm run dev` after changing environment variables.

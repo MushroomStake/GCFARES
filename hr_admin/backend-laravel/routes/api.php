@@ -2,18 +2,8 @@
 
 use App\Http\Controllers\Api\HrAdmin\ReviewController;
 use App\Http\Controllers\Api\HrAdmin\UserManagementController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
-
-// A pure test endpoint to verify our encryption layer works
-Route::post('/test-encryption', function (Request $request) {
-    return response()->json([
-        'status' => 'success',
-        'message' => 'The Laravel middleware successfully decrypted your payload!',
-        'you_sent' => $request->all() // Returns the decrypted data back to you
-    ]);
-})->middleware('api.token:HR');
 
 Route::prefix('hr')->middleware('api.token:HR')->controller(UserManagementController::class)->group(function () {
     Route::get('/users', 'index');
